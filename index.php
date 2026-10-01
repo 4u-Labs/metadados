@@ -333,7 +333,7 @@ if ($demo) {
 
         // Ilustração SVG de Alta Definição da Avenida Paulista / MASP
         $imagePreviewUrl = 'data:image/svg+xml;utf8,' . rawurlencode('
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" width="100%" height="100%">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" width="800" height="600">
   <defs>
     <linearGradient id="sky" x1="0%" y1="0%" x2="0%" y2="100%">
       <stop offset="0%" stop-color="#1e1b4b"/>
@@ -576,10 +576,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $fileStats = stat($tmpPath);
 
                 // Se for imagem, extrai Data URI para preview visual instantâneo
-                if (in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp']) && file_exists($tmpPath)) {
+                if (in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg', 'avif']) && file_exists($tmpPath)) {
                     $rawBytes = @file_get_contents($tmpPath);
-                    if ($rawBytes && strlen($rawBytes) <= 15 * 1024 * 1024) {
-                        $imagePreviewUrl = 'data:' . $mimeReal . ';base64,' . base64_encode($rawBytes);
+                    if ($rawBytes) {
+                        if ($ext === 'svg') {
+                            $imagePreviewUrl = 'data:image/svg+xml;utf8,' . rawurlencode($rawBytes);
+                        } elseif (strlen($rawBytes) <= 8 * 1024 * 1024) {
+                            $imagePreviewUrl = 'data:' . $mimeReal . ';base64,' . base64_encode($rawBytes);
+                        } else {
+                            // Imagens grandes (>8MB): gera thumbnail leve com GD
+                            $resized = false;
+                            if (function_exists('imagecreatefromstring')) {
+                                $srcImg = @imagecreatefromstring($rawBytes);
+                                if ($srcImg) {
+                                    $w = imagesx($srcImg);
+                                    $h = imagesy($srcImg);
+                                    $maxW = 1600;
+                                    if ($w > $maxW || $h > $maxW) {
+                                        $ratio = min($maxW / $w, $maxW / $h);
+                                        $nw = (int)($w * $ratio);
+                                        $nh = (int)($h * $ratio);
+                                        $dst = imagecreatetruecolor($nw, $nh);
+                                        if (in_array($ext, ['png', 'webp', 'gif'])) {
+                                            imagealphablending($dst, false);
+                                            imagesavealpha($dst, true);
+                                        }
+                                        imagecopyresampled($dst, $srcImg, 0, 0, 0, 0, $nw, $nh, $w, $h);
+                                        ob_start();
+                                        imagejpeg($dst, null, 85);
+                                        $thumbBytes = ob_get_clean();
+                                        imagedestroy($dst);
+                                        $imagePreviewUrl = 'data:image/jpeg;base64,' . base64_encode($thumbBytes);
+                                        $resized = true;
+                                    }
+                                    imagedestroy($srcImg);
+                                }
+                            }
+                            if (!$resized) {
+                                $imagePreviewUrl = 'data:' . $mimeReal . ';base64,' . base64_encode($rawBytes);
+                            }
+                        }
                     }
                 }
 
@@ -1060,7 +1096,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <section class="glass-panel p-6 flex flex-col md:flex-row items-center justify-between gap-5" style="border-top: 4px solid <?= $corTopo ?>;">
                     <div class="flex items-center gap-4 text-center md:text-left">
                         <?php if (!empty($imagePreviewUrl)): ?>
-                            <img src="<?= $imagePreviewUrl ?>" alt="Thumb" class="w-16 h-16 rounded-2xl object-cover border border-white/20 shadow-md flex-shrink-0 cursor-pointer hover:scale-105 transition-transform" onclick="window.open('<?= $imagePreviewUrl ?>', '_blank')" title="Clique para ampliar a imagem">
+                            <img src="<?= $imagePreviewUrl ?>" alt="Thumb" class="w-16 h-16 rounded-2xl object-cover border border-white/20 shadow-md flex-shrink-0 cursor-pointer hover:scale-105 transition-transform" onclick="abrirModalImagem()" title="Clique para ampliar a imagem">
                         <?php else: ?>
                             <div class="w-16 h-16 rounded-2xl flex items-center justify-center text-3xl flex-shrink-0" style="background: <?= $corTopo ?>25; border: 1px solid <?= $corTopo ?>60;">
                                 <?= $icone ?>
@@ -1149,16 +1185,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 <span>🖼️</span>
                                 <span>Pré-visualização da Imagem Analisada</span>
                             </h3>
-                            <span class="text-xs text-slate-400 font-mono"><?= htmlspecialchars($dados['📐 Dimensões e Qualidade']['Resolução'] ?? '') ?></span>
+                            <button type="button" onclick="abrirModalImagem()" class="px-3 py-1 rounded-lg bg-violet-600/20 hover:bg-violet-600/30 text-violet-300 border border-violet-500/30 text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer">
+                                <span>🔍</span>
+                                <span>Ampliar Imagem</span>
+                            </button>
                         </div>
-                        <div class="flex flex-col md:flex-row items-center gap-6 bg-slate-950/70 p-4 rounded-2xl border border-slate-800">
-                            <div class="max-w-md w-full md:w-auto flex-shrink-0 text-center">
-                                <img src="<?= $imagePreviewUrl ?>" alt="Imagem Analisada" class="max-h-80 w-auto rounded-xl border border-slate-700/80 shadow-2xl mx-auto object-contain cursor-pointer hover:scale-102 transition-transform" onclick="window.open('<?= $imagePreviewUrl ?>', '_blank')" title="Clique para abrir em tamanho real">
+                        <div class="flex flex-col md:flex-row items-center gap-6 bg-slate-950/70 p-5 rounded-2xl border border-slate-800">
+                            <!-- Container com largura definida para garantir renderização perfeita de SVG, JPG, PNG e WebP -->
+                            <div class="w-full md:w-80 lg:w-96 flex-shrink-0 flex items-center justify-center bg-slate-900/60 rounded-xl p-3 border border-slate-800/80 min-h-[220px]">
+                                <img src="<?= $imagePreviewUrl ?>" alt="Imagem Analisada" class="max-h-72 max-w-full w-auto h-auto rounded-lg shadow-2xl object-contain mx-auto transition-transform hover:scale-102 cursor-pointer" onclick="abrirModalImagem()" title="Clique para ampliar em tela cheia">
                             </div>
                             <div class="flex-1 space-y-3 text-xs text-slate-300 w-full">
-                                <div class="font-bold text-sm text-white">Imagem Carregada com Sucesso</div>
-                                <p class="text-slate-400">Esta imagem foi processada pelo motor forense para extração de metadados EXIF, IPTC, canais de cor e identificação de marcas de câmeras e geolocalização.</p>
-                                <div class="grid grid-cols-2 gap-2 font-mono">
+                                <div class="flex items-center justify-between">
+                                    <div class="font-bold text-sm text-white">Imagem Carregada com Sucesso</div>
+                                    <span class="text-xs text-slate-400 font-mono"><?= htmlspecialchars($dados['📐 Dimensões e Qualidade']['Resolução'] ?? '') ?></span>
+                                </div>
+                                <p class="text-slate-400 leading-relaxed">Esta imagem foi processada pelo motor forense para extração de metadados EXIF, IPTC, canais de cor e identificação de marcas de câmeras e geolocalização.</p>
+                                <div class="grid grid-cols-2 gap-2 font-mono pt-1">
                                     <div class="p-2.5 rounded-xl bg-slate-900 border border-slate-800">
                                         <span class="text-[10px] text-slate-500 block font-sans">RESOLUÇÃO</span>
                                         <strong class="text-white"><?= htmlspecialchars($dados['📐 Dimensões e Qualidade']['Resolução'] ?? '—') ?></strong>
@@ -1483,6 +1526,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 alert('📋 Laudo formatado em Markdown copiado com sucesso!');
             });
         }
+
+        // Lightbox Modal para Imagem
+        function abrirModalImagem() {
+            const m = document.getElementById('imageLightboxModal');
+            if (m) m.classList.remove('hidden');
+        }
+        function fecharModalImagem() {
+            const m = document.getElementById('imageLightboxModal');
+            if (m) m.classList.add('hidden');
+        }
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') fecharModalImagem();
+        });
     </script>
+
+    <!-- MODAL LIGHTBOX DE IMAGEM AMPLIADA -->
+    <?php if (!empty($imagePreviewUrl)): ?>
+    <div id="imageLightboxModal" class="hidden fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4" onclick="if(event.target === this) fecharModalImagem()">
+        <div class="relative max-w-4xl w-full bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl p-4 flex flex-col items-center">
+            <button type="button" onclick="fecharModalImagem()" class="absolute top-3 right-3 text-slate-400 hover:text-white bg-slate-800/80 hover:bg-slate-700 rounded-full w-8 h-8 flex items-center justify-center font-bold text-sm transition-all z-10 cursor-pointer" title="Fechar (Esc)">
+                ✕
+            </button>
+            <div class="overflow-auto max-h-[75vh] w-full flex items-center justify-center p-2">
+                <img src="<?= $imagePreviewUrl ?>" alt="Visualização Completa" class="max-h-[70vh] max-w-full rounded-lg object-contain shadow-lg">
+            </div>
+            <div class="w-full flex items-center justify-between text-xs text-slate-300 pt-3 border-t border-slate-800 px-2 mt-2">
+                <span class="font-mono text-slate-400"><?= htmlspecialchars($nomeOriginal ?? 'Imagem') ?> • <?= htmlspecialchars($dados['📐 Dimensões e Qualidade']['Resolução'] ?? '') ?></span>
+                <a href="<?= $imagePreviewUrl ?>" target="_blank" class="text-violet-400 hover:underline inline-flex items-center gap-1 font-semibold">
+                    <span>↗️ Abrir em Aba Separada</span>
+                </a>
+            </div>
+        </div>
+    </div>
+    <?php endif; ?>
 </body>
 </html>
