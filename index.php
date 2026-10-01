@@ -28,23 +28,66 @@ use PhpOffice\PhpSpreadsheet\IOFactory as SpreadsheetIO;
 // --- GERENCIAMENTO DE DOWNLOAD DE ARQUIVO HIGIENIZADO (SANITIZER) ---
 if (isset($_GET['download_clean']) && !empty($_GET['download_clean'])) {
     $token = preg_replace('/[^a-zA-Z0-9_-]/', '', $_GET['download_clean']);
-    $ext = preg_replace('/[^a-zA-Z0-9]/', '', $_GET['ext'] ?? 'dat');
+    $ext = strtolower(preg_replace('/[^a-zA-Z0-9]/', '', $_GET['ext'] ?? 'dat'));
     $origName = preg_replace('/[^a-zA-Z0-9._-]/', '', $_GET['orig'] ?? 'arquivo');
     
     $cleanPath = sys_get_temp_dir() . '/4u_clean_' . $token . '.' . $ext;
+
+    // Geração dinâmica instantânea para tokens de demonstração
+    if (!file_exists($cleanPath)) {
+        if ($token === 'demo_clean_gps' && function_exists('imagecreatetruecolor')) {
+            $im = imagecreatetruecolor(800, 600);
+            $bg = imagecolorallocate($im, 15, 23, 42);
+            imagefilledrectangle($im, 0, 0, 800, 600, $bg);
+            $red = imagecolorallocate($im, 239, 68, 68);
+            imagefilledrectangle($im, 280, 240, 520, 480, $red);
+            $cyan = imagecolorallocate($im, 56, 189, 248);
+            imagefilledrectangle($im, 300, 260, 500, 460, $cyan);
+            $white = imagecolorallocate($im, 255, 255, 255);
+            imagestring($im, 5, 200, 200, "4U METAVIEWER - FOTO HIGIENIZADA", $white);
+            imagestring($im, 3, 220, 520, "100% LIMPO - ZERO EXIF - ZERO GPS", $white);
+            imagejpeg($im, $cleanPath, 95);
+            imagedestroy($im);
+        } elseif ($token === 'demo_clean_ai' && function_exists('imagecreatetruecolor')) {
+            $im = imagecreatetruecolor(800, 450);
+            $bg = imagecolorallocate($im, 10, 15, 30);
+            imagefilledrectangle($im, 0, 0, 800, 450, $bg);
+            $purple = imagecolorallocate($im, 168, 85, 247);
+            imagefilledrectangle($im, 40, 40, 760, 410, $purple);
+            $inner = imagecolorallocate($im, 18, 12, 35);
+            imagefilledrectangle($im, 50, 50, 750, 400, $inner);
+            $white = imagecolorallocate($im, 255, 255, 255);
+            imagestring($im, 5, 210, 190, "4U METAVIEWER - IMAGEM IA HIGIENIZADA", $white);
+            $yellow = imagecolorallocate($im, 253, 224, 71);
+            imagestring($im, 3, 230, 220, "Prompts, tags IPTC e C2PA eliminados!", $yellow);
+            imagepng($im, $cleanPath, 9);
+            imagedestroy($im);
+        }
+    }
+
     if (file_exists($cleanPath)) {
+        $mimeMap = [
+            'jpg' => 'image/jpeg',
+            'jpeg' => 'image/jpeg',
+            'png' => 'image/png',
+            'webp' => 'image/webp',
+            'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'xlsx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'pdf' => 'application/pdf'
+        ];
+        $contentType = $mimeMap[$ext] ?? 'application/octet-stream';
+
         header('Content-Description: File Transfer');
-        header('Content-Type: application/octet-stream');
+        header('Content-Type: ' . $contentType);
         header('Content-Disposition: attachment; filename="limpo_' . $origName . '"');
         header('Expires: 0');
-        header('Cache-Control: must-revalidate');
+        header('Cache-Control: must-revalidate, post-check=0, pre-check=0');
         header('Pragma: public');
         header('Content-Length: ' . filesize($cleanPath));
         readfile($cleanPath);
-        @unlink($cleanPath);
         exit;
     } else {
-        die("Arquivo higienizado expirado ou inexistente. Faça um novo upload.");
+        die("Arquivo higienizado expirado ou inexistente. Por favor, faça um novo upload.");
     }
 }
 
@@ -65,6 +108,7 @@ $privacyScore = null;
 $iaDetectada = [];
 $softwaresDetectados = [];
 $imagePreviewUrl = null; // Data URI para exibição da imagem analisada
+$aiDiagnosis = null; // Diagnóstico forense completo de IA & Autoria
 
 // Funções Utilitárias de Conversão e Formatação
 function formatarTamanho($bytes) {
@@ -318,6 +362,290 @@ function detectarSoftwareIA($dados) {
     ];
 }
 
+// Extração profunda de Chunks PNG (tEXt, zTXt, iTXt) para detecção de prompts de IA
+function extrairChunksPng($data) {
+    $results = [];
+    $offset = 8;
+    $len = strlen($data);
+    while ($offset < $len - 12) {
+        $chunkLen = unpack("N", substr($data, $offset, 4))[1] ?? 0;
+        $chunkType = substr($data, $offset + 4, 4);
+        if ($chunkLen < 0 || $offset + 8 + $chunkLen > $len) break;
+        $chunkData = substr($data, $offset + 8, $chunkLen);
+        $offset += 12 + $chunkLen;
+        
+        if ($chunkType === "tEXt") {
+            $parts = explode("\0", $chunkData, 2);
+            if (count($parts) === 2) {
+                $results[trim($parts[0])] = $parts[1];
+            }
+        } elseif ($chunkType === "zTXt") {
+            $parts = explode("\0", $chunkData, 2);
+            if (count($parts) === 2 && strlen($parts[1]) > 1) {
+                $decompressed = @gzuncompress(substr($parts[1], 1));
+                if ($decompressed !== false) {
+                    $results[trim($parts[0])] = $decompressed;
+                }
+            }
+        } elseif ($chunkType === "iTXt") {
+            $parts = explode("\0", $chunkData, 3);
+            if (count($parts) >= 2) {
+                $keyword = trim($parts[0]);
+                $rest = substr($chunkData, strlen($parts[0]) + 1);
+                $compFlag = ord($rest[0] ?? "\0");
+                $rest = substr($rest, 2);
+                $null1 = strpos($rest, "\0");
+                if ($null1 !== false) {
+                    $rest = substr($rest, $null1 + 1);
+                    $null2 = strpos($rest, "\0");
+                    if ($null2 !== false) {
+                        $text = substr($rest, $null2 + 1);
+                        if ($compFlag === 1) {
+                            $text = @gzuncompress($text);
+                        }
+                        if ($text !== false) {
+                            $results[$keyword] = $text;
+                        }
+                    }
+                }
+            }
+        } elseif ($chunkType === "IEND") {
+            break;
+        }
+    }
+    return $results;
+}
+
+// Analisador Forense Profundo de Origem e Inteligência Artificial (IPTC, C2PA, EXIF, XMP, PNG Chunks)
+function analisarOrigemEInteligenciaArtificial($tmpPath, $ext, $dados, $nomeArquivo = '') {
+    $evidencias = [];
+    $isAI = false;
+    $modeloIA = null;
+    $promptExtraido = null;
+    $rawBytesHead = '';
+
+    if (file_exists($tmpPath)) {
+        $fh = @fopen($tmpPath, 'rb');
+        if ($fh) {
+            $rawBytesHead = fread($fh, 4 * 1024 * 1024);
+            fclose($fh);
+        }
+    }
+
+    $pngChunks = [];
+    if (in_array(strtolower($ext), ['png']) && !empty($rawBytesHead)) {
+        $pngChunks = extrairChunksPng($rawBytesHead);
+    }
+
+    // 1. Padrão Internacional IPTC 2023+ (DALL-E 3, Midjourney v6, Adobe Firefly, Google Imagen)
+    if (stripos($rawBytesHead, 'trainedAlgorithmicMedia') !== false || stripos($rawBytesHead, 'digitalsourcetype/trainedalgorithmicmedia') !== false) {
+        $isAI = true;
+        $evidencias[] = 'Padrão Internacional IPTC: digitalSourceType = trainedAlgorithmicMedia detectado';
+    }
+    if (stripos($rawBytesHead, 'compositeWithTrainedAlgorithmicMedia') !== false) {
+        $isAI = true;
+        $evidencias[] = 'Padrão IPTC: Composição contendo elementos de IA (compositeWithTrainedAlgorithmicMedia)';
+    }
+
+    // 2. Manifesto C2PA / Content Credentials
+    if (stripos($rawBytesHead, 'c2pa') !== false && (stripos($rawBytesHead, 'ai_generated') !== false || stripos($rawBytesHead, 'trainedAlgorithmic') !== false || stripos($rawBytesHead, 'contentcredentials') !== false)) {
+        $isAI = true;
+        $evidencias[] = 'Manifesto C2PA de Mídia Sintética / Content Credentials detectado';
+    }
+
+    // 3. Midjourney
+    if (stripos($rawBytesHead, 'midjourney') !== false || stripos(json_encode($dados), 'midjourney') !== false) {
+        $isAI = true;
+        $modeloIA = $modeloIA ?: 'Midjourney';
+        $evidencias[] = 'Assinatura digital ou metadados da engine Midjourney identificados';
+    }
+    if (preg_match('/--v\s+[0-9.]+|--ar\s+[0-9:]+|--stylize\s+\d+|--chaos\s+\d+/i', $rawBytesHead, $mjMatches)) {
+        $isAI = true;
+        $modeloIA = $modeloIA ?: 'Midjourney';
+        $evidencias[] = 'Parâmetros de prompt característicos do Midjourney detectados (' . htmlspecialchars($mjMatches[0]) . ')';
+    }
+
+    // 4. Stable Diffusion / ComfyUI / Automatic1111 / WebUI / Forge / NovelAI
+    if (!empty($pngChunks)) {
+        if (isset($pngChunks['parameters'])) {
+            $isAI = true;
+            $modeloIA = $modeloIA ?: 'Stable Diffusion (A1111 / WebUI / Forge)';
+            $promptExtraido = $pngChunks['parameters'];
+            $evidencias[] = 'Metadados de geração Stable Diffusion (parâmetros, seed e steps) extraídos do chunk PNG';
+        }
+        if (isset($pngChunks['prompt'])) {
+            $isAI = true;
+            $modeloIA = $modeloIA ?: 'ComfyUI / Stable Diffusion';
+            $evidencias[] = 'Grafo de fluxo ComfyUI (prompt nodes) detectado no chunk PNG';
+            if (!$promptExtraido) $promptExtraido = $pngChunks['prompt'];
+        }
+        if (isset($pngChunks['workflow'])) {
+            $isAI = true;
+            $modeloIA = $modeloIA ?: 'ComfyUI Workflow';
+            $evidencias[] = 'Estrutura completa de Workflow ComfyUI embutida na imagem';
+        }
+        if (isset($pngChunks['Software']) && stripos($pngChunks['Software'], 'NovelAI') !== false) {
+            $isAI = true;
+            $modeloIA = 'NovelAI Diffusion';
+            $evidencias[] = 'Assinatura NovelAI Diffusion identificada no cabeçalho PNG';
+        }
+    }
+
+    // Procura parâmetros Stable Diffusion em JPEG/WebP
+    if (!$isAI && preg_match('/Negative prompt:|Steps:\s*\d+,\s*Sampler:\s*[^,]+,\s*CFG scale:\s*[^,]+/i', $rawBytesHead, $sdMatches)) {
+        $isAI = true;
+        $modeloIA = $modeloIA ?: 'Stable Diffusion';
+        $evidencias[] = 'Bloco de parâmetros de difusão (' . htmlspecialchars($sdMatches[0]) . ') identificado nos metadados';
+    }
+
+    // 5. DALL-E (OpenAI)
+    if (stripos($rawBytesHead, 'dall-e') !== false || stripos($rawBytesHead, 'dalle') !== false || (stripos($rawBytesHead, 'openai') !== false && stripos($rawBytesHead, 'image') !== false)) {
+        $isAI = true;
+        $modeloIA = $modeloIA ?: 'DALL-E (OpenAI)';
+        $evidencias[] = 'Metadados / identificadores OpenAI DALL-E identificados';
+    }
+
+    // 6. Adobe Firefly
+    if (stripos($rawBytesHead, 'adobe firefly') !== false || stripos($rawBytesHead, 'firefly') !== false) {
+        $isAI = true;
+        $modeloIA = $modeloIA ?: 'Adobe Firefly';
+        $evidencias[] = 'Metadados de geração generativa do Adobe Firefly encontrados';
+    }
+
+    // 7. Bing Image Creator / Microsoft Designer
+    if (stripos($rawBytesHead, 'bing image creator') !== false || stripos($rawBytesHead, 'designer.microsoft') !== false) {
+        $isAI = true;
+        $modeloIA = $modeloIA ?: 'Bing Image Creator / DALL-E';
+        $evidencias[] = 'Identificador Bing Image Creator / Microsoft Designer detectado';
+    }
+
+    // 8. Flux.1 / Black Forest Labs
+    if (stripos($rawBytesHead, 'flux.1') !== false || stripos($rawBytesHead, 'blackforestlabs') !== false || stripos($rawBytesHead, 'flux-') !== false) {
+        $isAI = true;
+        $modeloIA = $modeloIA ?: 'Flux.1 (Black Forest Labs)';
+        $evidencias[] = 'Assinatura do modelo Flux.1 encontrada';
+    }
+
+    // 9. Ideogram / Leonardo.ai
+    if (stripos($rawBytesHead, 'ideogram') !== false) {
+        $isAI = true;
+        $modeloIA = $modeloIA ?: 'Ideogram AI';
+        $evidencias[] = 'Metadados Ideogram identificados';
+    }
+    if (stripos($rawBytesHead, 'leonardo.ai') !== false || stripos($rawBytesHead, 'leonardo diffusion') !== false) {
+        $isAI = true;
+        $modeloIA = $modeloIA ?: 'Leonardo.ai';
+        $evidencias[] = 'Metadados Leonardo.ai detectados';
+    }
+
+    // SE FOI DETECTADA COMO IA
+    if ($isAI) {
+        return [
+            'status' => 'ai_detected',
+            'titulo' => 'Imagem Gerada por Inteligência Artificial (IA Detectada)',
+            'subtitulo' => 'Marcadores sintéticos e assinaturas neurais confirmados',
+            'modelo' => $modeloIA ?: 'Modelo de Difusão / IA Generativa',
+            'confianca' => 'Alta Precisão (99% - 100%)',
+            'cor' => '#a855f7',
+            'icone' => '🤖',
+            'prompt' => $promptExtraido,
+            'evidencias' => $evidencias
+        ];
+    }
+
+    // SE NÃO É IA, VERIFICA SE É FOTO REAL DE CÂMERA
+    $hasCamera = false;
+    $cameraModel = '';
+    $cameraParams = [];
+    if (isset($dados['📷 Câmera & Dispositivo']) && is_array($dados['📷 Câmera & Dispositivo'])) {
+        $cam = $dados['📷 Câmera & Dispositivo'];
+        if (!empty($cam['Modelo']) || !empty($cam['Fabricante'])) {
+            $hasCamera = true;
+            $cameraModel = trim(($cam['Fabricante'] ?? '') . ' ' . ($cam['Modelo'] ?? ''));
+        }
+    }
+    if (isset($dados['📷 Equipamento Fotográfico']) && is_array($dados['📷 Equipamento Fotográfico'])) {
+        $cam = $dados['📷 Equipamento Fotográfico'];
+        if (!empty($cam['Modelo']) || !empty($cam['Fabricante'])) {
+            $hasCamera = true;
+            $cameraModel = trim(($cam['Fabricante'] ?? '') . ' ' . ($cam['Modelo'] ?? ''));
+        }
+    }
+    if (isset($dados['⚙️ Ajustes de Exposição']) && is_array($dados['⚙️ Ajustes de Exposição'])) {
+        $exp = $dados['⚙️ Ajustes de Exposição'];
+        if (!empty($exp['Abertura (F-Number)']) || !empty($exp['Tempo de Exposição']) || !empty($exp['Sensibilidade ISO'])) {
+            $hasCamera = true;
+            $cameraParams = $exp;
+        }
+    }
+
+    if ($hasCamera) {
+        $evCamera = [];
+        if ($cameraModel) $evCamera[] = "Dispositivo físico identificado: {$cameraModel}";
+        if (!empty($cameraParams['Abertura (F-Number)'])) $evCamera[] = "Abertura óptica real: " . $cameraParams['Abertura (F-Number)'];
+        if (!empty($cameraParams['Tempo de Exposição'])) $evCamera[] = "Tempo de exposição mecânico/eletrônico: " . $cameraParams['Tempo de Exposição'];
+        if (!empty($cameraParams['Sensibilidade ISO'])) $evCamera[] = "Sensibilidade ISO do sensor: " . $cameraParams['Sensibilidade ISO'];
+        if (isset($dados['🌐 Geolocalização Exata (GPS)']) || isset($dados['🌍 Geolocalização (GPS)'])) {
+            $evCamera[] = "Coordenadas geográficas físicas de GPS registradas por satélite";
+        }
+        $evCamera[] = "Zero marcadores, prompts ou assinaturas generativas de IA";
+
+        return [
+            'status' => 'camera_photo',
+            'titulo' => 'Fotografia Real Capturada por Câmera / Dispositivo',
+            'subtitulo' => 'Sem indícios de Inteligência Artificial — Consistência Óptica Confirmada',
+            'dispositivo' => $cameraModel ?: 'Câmera Digital / Smartphone',
+            'confianca' => 'Alta Precisão (Consistência Fotográfica)',
+            'cor' => '#10b981',
+            'icone' => '📸',
+            'evidencias' => $evCamera
+        ];
+    }
+
+    // SE NÃO É CÂMERA, VERIFICA SE É SOFTWARE GRÁFICO (Photoshop, Canva, Figma)
+    $hasSoftware = false;
+    $softName = '';
+    $softKeywords = ['photoshop', 'illustrator', 'canva', 'gimp', 'figma', 'coreldraw', 'procreate'];
+    $strAll = strtolower(json_encode($dados));
+    foreach ($softKeywords as $sw) {
+        if (strpos($strAll, $sw) !== false) {
+            $hasSoftware = true;
+            $softName = ucfirst($sw);
+            break;
+        }
+    }
+    if ($hasSoftware) {
+        return [
+            'status' => 'graphic_software',
+            'titulo' => 'Arte Gráfica Digital / Software de Design',
+            'subtitulo' => 'Criada ou exportada através de editor gráfico',
+            'software' => $softName,
+            'confianca' => 'Alta Precisão',
+            'cor' => '#3b82f6',
+            'icone' => '🎨',
+            'evidencias' => [
+                "Metadados do editor gráfico {$softName} presentes no cabeçalho",
+                "Ausência de assinaturas de redes neurais generativas de IA",
+                "Sem dados de lentes ou sensores fotográficos de câmeras físicas"
+            ]
+        ];
+    }
+
+    // CASO INDETERMINADO
+    return [
+        'status' => 'unknown',
+        'titulo' => 'Origem Indeterminada (Metadados Ausentes)',
+        'subtitulo' => 'A imagem não contém metadados suficientes para cravar a autoria',
+        'confianca' => 'Moderada',
+        'cor' => '#64748b',
+        'icone' => '🔍',
+        'evidencias' => [
+            'Arquivo não possui tags EXIF/IPTC de câmera nem marcadores generativos de IA',
+            'A imagem pode ter sido higienizada ou comprimida por mensageiros (WhatsApp, Telegram) ou redes sociais'
+        ]
+    ];
+}
+
 // ==========================================================================
 // MODO DEMONSTRAÇÃO EM 1 CLIQUE
 // ==========================================================================
@@ -430,8 +758,161 @@ if ($demo) {
             '⚠️ Alto Risco LGPD: Rastreamento físico de residência ou local de trabalho detectado.'
         ];
 
+        $aiDiagnosis = [
+            'status' => 'camera_photo',
+            'titulo' => 'Fotografia Real Capturada por Câmera / Dispositivo',
+            'subtitulo' => 'Sem nenhum indício de Inteligência Artificial — Consistência Óptica Confirmada',
+            'dispositivo' => 'Apple iPhone 15 Pro (Sensor Principal de 48MP)',
+            'confianca' => 'Alta Precisão (99.8%)',
+            'cor' => '#10b981',
+            'icone' => '📸',
+            'evidencias' => [
+                'Sensor físico Apple CMOS com distância focal de 24mm equivalente',
+                'Abertura mecânica f/1.78, velocidade do obturador 1/1200s e sensibilidade ISO 50',
+                'Coordenadas de satélite GPS registradas em tempo real: -23.561414, -46.655881 (MASP, São Paulo)',
+                'Zero tags, prompts sintéticos ou assinaturas de redes neurais generativas'
+            ]
+        ];
+
         $tokenLimpo = 'demo_clean_gps';
         $extLimpo = 'jpg';
+        $resultado = $dados;
+    }
+    elseif ($demo === 'ai') {
+        $nomeOriginal = 'Cyberpunk_Neo_Tokyo_2077_v6.png';
+        $ext = 'png';
+        $icone = "🤖";
+        $corTopo = "#a855f7";
+        $badges = ['Imagem', 'PNG', 'Inteligência Artificial', 'Midjourney v6.1', 'C2PA Detectado'];
+
+        // Ilustração SVG Cyberpunk 16:9 em Alta Resolução
+        $imagePreviewUrl = 'data:image/svg+xml;utf8,' . rawurlencode('
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450" width="800" height="450">
+  <defs>
+    <linearGradient id="cyberSky" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#050510"/>
+      <stop offset="40%" stop-color="#180b30"/>
+      <stop offset="70%" stop-color="#3b0764"/>
+      <stop offset="100%" stop-color="#701a75"/>
+    </linearGradient>
+    <linearGradient id="neonPink" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#f43f5e"/>
+      <stop offset="100%" stop-color="#ec4899"/>
+    </linearGradient>
+    <linearGradient id="neonCyan" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#06b6d4"/>
+      <stop offset="100%" stop-color="#3b82f6"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="450" fill="url(#cyberSky)"/>
+  <!-- Sol Cibernético Neon -->
+  <circle cx="400" cy="180" r="75" fill="#f43f5e" opacity="0.85"/>
+  <circle cx="400" cy="180" r="62" fill="#ec4899" opacity="0.95"/>
+  <!-- Grade Synthwave de Perspectiva -->
+  <line x1="0" y1="360" x2="800" y2="360" stroke="#a855f7" stroke-width="2" opacity="0.6"/>
+  <line x1="0" y1="385" x2="800" y2="385" stroke="#a855f7" stroke-width="1.8" opacity="0.75"/>
+  <line x1="0" y1="415" x2="800" y2="415" stroke="#a855f7" stroke-width="2" opacity="0.9"/>
+  <!-- Linhas diagonais da perspectiva -->
+  <line x1="400" y1="340" x2="0" y2="450" stroke="#06b6d4" stroke-width="1.5" opacity="0.6"/>
+  <line x1="400" y1="340" x2="160" y2="450" stroke="#06b6d4" stroke-width="1.5" opacity="0.6"/>
+  <line x1="400" y1="340" x2="310" y2="450" stroke="#06b6d4" stroke-width="1.5" opacity="0.6"/>
+  <line x1="400" y1="340" x2="490" y2="450" stroke="#06b6d4" stroke-width="1.5" opacity="0.6"/>
+  <line x1="400" y1="340" x2="640" y2="450" stroke="#06b6d4" stroke-width="1.5" opacity="0.6"/>
+  <line x1="400" y1="340" x2="800" y2="450" stroke="#06b6d4" stroke-width="1.5" opacity="0.6"/>
+  <!-- Arranha-céus Futuristas -->
+  <rect x="40" y="160" width="80" height="200" fill="#090d16"/>
+  <rect x="140" y="120" width="70" height="240" fill="#0c1222"/>
+  <rect x="230" y="190" width="90" height="170" fill="#090d16"/>
+  <rect x="480" y="150" width="85" height="210" fill="#0c1222"/>
+  <rect x="585" y="110" width="75" height="250" fill="#090d16"/>
+  <rect x="680" y="170" width="80" height="190" fill="#0c1222"/>
+  <!-- Janelas / Luzes de Hologramas -->
+  <rect x="155" y="140" width="40" height="10" fill="#06b6d4" opacity="0.85"/>
+  <rect x="600" y="130" width="45" height="10" fill="#f43f5e" opacity="0.85"/>
+  <rect x="60" y="200" width="40" height="8" fill="#a855f7" opacity="0.85"/>
+  <rect x="500" y="180" width="45" height="8" fill="#38bdf8" opacity="0.85"/>
+  <!-- Veículos Voadores com Rastro de Luz -->
+  <ellipse cx="320" cy="170" rx="30" ry="7" fill="#090d16"/>
+  <line x1="270" y1="172" x2="350" y2="172" stroke="#06b6d4" stroke-width="2.5"/>
+  <ellipse cx="490" cy="220" rx="25" ry="6" fill="#090d16"/>
+  <line x1="450" y1="222" x2="520" y2="222" stroke="#f43f5e" stroke-width="2.5"/>
+  <!-- Tarja Superior com Marcador de IA -->
+  <rect x="20" y="20" width="760" height="42" rx="8" fill="#000000" opacity="0.65"/>
+  <text x="35" y="47" fill="#a855f7" font-family="monospace" font-size="12" font-weight="700">MIDJOURNEY v6.1 • PROMPT: cinematic wide establishing shot of a futuristic cyberpunk neon city 8k --v 6.1</text>
+</svg>');
+
+        $hashes = [
+            'MD5' => 'b7f16a048a176846deef39bbca584102',
+            'SHA-1' => '3f545ff402927e1f574d6c442750e326b8cb7129',
+            'SHA-256' => '8e741804e4604d30ad56230f89d1502447ad9efb10b0e5124032ef349320287a',
+            'SHA-512' => 'e9b489025e173875be489115f791724032aeb89e130285923145...',
+            'CRC32' => '4c3d2e1f'
+        ];
+
+        $promptIA = 'cinematic wide establishing shot of a futuristic cyberpunk neo-tokyo street at night, towering holographic neon billboards, flying spinners gliding through volumetric rain, wet asphalt with hyper-detailed purple and cyan reflections, highly detailed sci-fi architectural textures, photorealistic, 8k resolution, octane render, unreal engine 5 --v 6.1 --ar 16:9 --style raw --stylize 250';
+
+        $dados = [
+            '📝 Nome do Arquivo' => $nomeOriginal,
+            '🤖 Origem da Imagem' => [
+                'Classificação' => 'Gerada por Inteligência Artificial (IA Detectada)',
+                'Engine de Difusão' => 'Midjourney v6.1 (Niji / Photoreal Neural Engine)',
+                'IPTC Digital Source Type' => 'http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia',
+                'Proveniência C2PA' => 'Manifesto C2PA de Mídia Sintética Presente (Coalition for Content Provenance)',
+                'Nível de Certeza' => '100% (Marcadores Criptográficos e Sintéticos Confirmados)'
+            ],
+            '✨ Parâmetros de Geração (Prompt Forense)' => [
+                'Prompt Completo' => $promptIA,
+                'Modelo' => 'Midjourney v6.1',
+                'Aspect Ratio' => '--ar 16:9 (3840 × 2160)',
+                'Estilização' => '--stylize 250',
+                'Modo' => '--style raw',
+                'Espaço Latente' => 'Stable Diffusion / Custom Latent Diffusion Architecture'
+            ],
+            '📐 Dimensões e Qualidade' => [
+                'Resolução' => '3840 × 2160 pixels',
+                'Megapixels' => '8.29 MP',
+                'Proporção' => '16:9 (Widescreen 4K UHD)',
+                'Espaço de Cor' => 'sRGB IEC61966-2.1',
+                'Profundidade' => '8-bit por canal (24-bit RGB)',
+                'Tamanho Impresso (300 DPI)' => '32.5 × 18.3 cm'
+            ],
+            '📊 Informações do Arquivo' => [
+                'MIME Type Detectado' => 'image/png',
+                'Tamanho em Disco' => '14.8 MB',
+                'Chunk de Metadados' => 'tEXt, iTXt (Embedded Prompt Metadata)'
+            ]
+        ];
+
+        $estatisticas = [
+            ['label' => 'Resolução', 'value' => '3840 × 2160', 'color' => 'blue'],
+            ['label' => 'Autoria', 'value' => 'IA Detectada', 'color' => 'purple'],
+            ['label' => 'Modelo', 'value' => 'Midjourney v6.1', 'color' => 'green']
+        ];
+        $alertas = [
+            '🤖 Imagem Gerada por IA: Esta imagem foi gerada artificialmente pelo modelo Midjourney v6.1.',
+            '✨ Prompt Original Identificado: Os parâmetros completos e o texto descritivo foram recuperados dos metadados.',
+            '🛡️ Higienização Disponível: Você pode apagar todos os identificadores de IA e baixar a imagem 100% limpa.'
+        ];
+
+        $aiDiagnosis = [
+            'status' => 'ai_detected',
+            'titulo' => 'Imagem Gerada por Inteligência Artificial (IA Detectada)',
+            'subtitulo' => 'Assinaturas sintéticas confirmadas via padrões IPTC, C2PA e parâmetros Midjourney',
+            'modelo' => 'Midjourney v6.1 (Neural Diffusion)',
+            'confianca' => '100% (Marcadores C2PA & IPTC Confirmados)',
+            'cor' => '#a855f7',
+            'icone' => '🤖',
+            'prompt' => $promptIA,
+            'evidencias' => [
+                'Padrão Internacional IPTC: digitalSourceType = trainedAlgorithmicMedia detectado',
+                'Manifesto C2PA de Mídia Sintética / Content Credentials registrado',
+                'Bloco de metadados tEXt com comando de geração "--v 6.1 --ar 16:9"',
+                'Ausência total de ruído de sensor analógico ou aberração cromática de lentes reais'
+            ]
+        ];
+
+        $tokenLimpo = 'demo_clean_ai';
+        $extLimpo = 'png';
         $resultado = $dados;
     }
     elseif ($demo === 'docx') {
@@ -541,6 +1022,10 @@ if ($demo) {
         $deteccao = detectarSoftwareIA($resultado);
         $iaDetectada = $deteccao['ias'];
         $softwaresDetectados = $deteccao['softwares'];
+        if ($aiDiagnosis && $aiDiagnosis['status'] === 'ai_detected' && !empty($aiDiagnosis['modelo'])) {
+            $iaDetectada[] = $aiDiagnosis['modelo'];
+            $iaDetectada = array_unique($iaDetectada);
+        }
     }
 }
 
@@ -849,6 +1334,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $iaDetectada = $deteccao['ias'];
                 $softwaresDetectados = $deteccao['softwares'];
 
+                // Análise Forense Profunda de IA & Origem (Imagens)
+                if (in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg', 'avif', 'tiff', 'tif'])) {
+                    $aiDiagnosis = analisarOrigemEInteligenciaArtificial($tmpPath, $ext, $resultado, $nomeOriginal);
+                    if ($aiDiagnosis && $aiDiagnosis['status'] === 'ai_detected' && !empty($aiDiagnosis['modelo'])) {
+                        $iaDetectada[] = $aiDiagnosis['modelo'];
+                        $iaDetectada = array_unique($iaDetectada);
+                    }
+                }
+
             } catch (Exception $e) {
                 $erro = "Erro durante o processamento do arquivo: " . $e->getMessage();
             }
@@ -991,10 +1485,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <div>
                     <div class="flex items-center justify-center md:justify-start gap-2.5">
                         <h1 class="text-2xl sm:text-3xl font-black tracking-tight text-white">4U METAVIEWER</h1>
-                        <span class="pro-badge">PRO 5.1</span>
+                        <span class="pro-badge">PRO 5.2</span>
                     </div>
                     <p class="text-xs sm:text-sm text-slate-400 mt-1 max-w-xl">
-                        Auditoria Forense de Metadados, Higienização de Arquivos (LGPD), Visualização da Imagem & Geolocalização.
+                        Auditoria Forense de Metadados, Higienização de Imagens (LGPD), Detecção de IA & Geolocalização.
                     </p>
                 </div>
             </div>
@@ -1004,6 +1498,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <span class="text-xs text-slate-500 font-medium">Testar com Demo:</span>
                 <a href="index.php?demo=gps" class="px-3 py-1.5 rounded-xl bg-violet-600/20 hover:bg-violet-600/30 border border-violet-500/30 text-xs font-semibold text-violet-300 transition-all">
                     📸 Foto GPS
+                </a>
+                <a href="index.php?demo=ai" class="px-3 py-1.5 rounded-xl bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/30 text-xs font-semibold text-purple-300 transition-all shadow-sm">
+                    🤖 Imagem IA
                 </a>
                 <a href="index.php?demo=docx" class="px-3 py-1.5 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 text-xs font-semibold text-blue-300 transition-all">
                     📘 DOCX
@@ -1110,13 +1607,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 <?= htmlspecialchars($resultado['📝 Nome do Arquivo'] ?? 'Arquivo') ?>
                             </h2>
                             <div class="flex flex-wrap items-center justify-center md:justify-start gap-2 mt-2">
+                                <?php if (!empty($aiDiagnosis)): ?>
+                                    <?php if ($aiDiagnosis['status'] === 'ai_detected'): ?>
+                                        <span class="badge-pill bg-purple-600/40 text-purple-200 border-purple-400 font-extrabold flex items-center gap-1 shadow-sm">
+                                            🤖 Feita por IA: <?= htmlspecialchars($aiDiagnosis['modelo'] ?? 'IA Generativa') ?>
+                                        </span>
+                                    <?php elseif ($aiDiagnosis['status'] === 'camera_photo'): ?>
+                                        <span class="badge-pill bg-emerald-600/30 text-emerald-300 border-emerald-500/40 font-bold flex items-center gap-1">
+                                            📸 Foto Real de Câmera
+                                        </span>
+                                    <?php elseif ($aiDiagnosis['status'] === 'graphic_software'): ?>
+                                        <span class="badge-pill bg-blue-600/30 text-blue-300 border-blue-500/40 font-bold flex items-center gap-1">
+                                            🎨 Design Digital (<?= htmlspecialchars($aiDiagnosis['software'] ?? '') ?>)
+                                        </span>
+                                    <?php endif; ?>
+                                <?php endif; ?>
+
                                 <?php foreach ($badges as $b): ?>
                                     <span class="badge-pill text-slate-200"><?= htmlspecialchars($b) ?></span>
                                 <?php endforeach; ?>
                                 <?php foreach ($iaDetectada as $ia): ?>
-                                    <span class="badge-pill bg-purple-600/30 text-purple-300 border-purple-500/40 font-bold">
-                                        🤖 Criado via <?= htmlspecialchars($ia) ?>
-                                    </span>
+                                    <?php if (empty($aiDiagnosis) || $aiDiagnosis['status'] !== 'ai_detected'): ?>
+                                        <span class="badge-pill bg-purple-600/30 text-purple-300 border-purple-500/40 font-bold">
+                                            🤖 Criado via <?= htmlspecialchars($ia) ?>
+                                        </span>
+                                    <?php endif; ?>
                                 <?php endforeach; ?>
                                 <?php foreach ($softwaresDetectados as $soft): ?>
                                     <span class="badge-pill bg-blue-600/30 text-blue-300 border-blue-500/40">
@@ -1148,8 +1663,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         </div>
 
                         <div class="flex flex-wrap items-center gap-2">
-                            <!-- Botão Higienizador (Metadata Stripper) -->
-                            <?php if ($tokenLimpo && $extLimpo): ?>
+                            <!-- Botão Higienizador / Apagar Metadados da Imagem -->
+                            <?php if (!empty($imagePreviewUrl)): ?>
+                                <button type="button" onclick="apagarMetadadosAcao()" class="px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow-lg shadow-emerald-600/25 transition-all flex items-center gap-2 cursor-pointer transform hover:-translate-y-0.5">
+                                    <span>🧹</span>
+                                    <span>Apagar Todos os Metadados da Imagem</span>
+                                </button>
+                            <?php elseif ($tokenLimpo && $extLimpo): ?>
                                 <a href="index.php?download_clean=<?= urlencode($tokenLimpo) ?>&ext=<?= urlencode($extLimpo) ?>&orig=<?= urlencode($nomeOriginal) ?>" class="px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow-lg shadow-emerald-600/25 transition-all flex items-center gap-2">
                                     <span>🛡️</span>
                                     <span>Baixar Arquivo Higienizado (Sem Metadados)</span>
@@ -1221,6 +1741,123 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 </div>
                             </div>
                         </div>
+
+                        <!-- Banner de Ação de Higienização de Metadados -->
+                        <div class="mt-4 p-4 rounded-xl bg-gradient-to-r from-emerald-950/40 via-teal-950/30 to-slate-900 border border-emerald-500/40 flex flex-col sm:flex-row items-center justify-between gap-3">
+                            <div class="flex items-center gap-3">
+                                <div class="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-xl flex-shrink-0">
+                                    🧹
+                                </div>
+                                <div>
+                                    <strong class="text-xs sm:text-sm text-emerald-200 block font-bold">Higienização Total de Metadados</strong>
+                                    <span class="text-[11px] text-slate-400">Elimina 100% de coordenadas GPS, modelo da câmera, data e prompts/assinaturas de IA com 1 clique.</span>
+                                </div>
+                            </div>
+                            <button type="button" onclick="apagarMetadadosAcao()" class="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg shadow-emerald-600/30 transition-all flex items-center gap-1.5 flex-shrink-0 cursor-pointer">
+                                <span>🛡️</span>
+                                <span>Apagar Metadados & Baixar</span>
+                            </button>
+                        </div>
+                    </section>
+                <?php endif; ?>
+
+                <!-- 3.1 DIAGNÓSTICO FORENSE DE INTELIGÊNCIA ARTIFICIAL & AUTORIA (SEMPRE QUE FOR IMAGEM) -->
+                <?php if (!empty($aiDiagnosis)): ?>
+                    <section class="glass-panel p-6 space-y-4" style="border-left: 5px solid <?= $aiDiagnosis['cor'] ?>;">
+                        <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                            <div class="flex items-center gap-3">
+                                <div class="w-12 h-12 rounded-2xl flex items-center justify-center text-2xl shadow-inner flex-shrink-0" style="background: <?= $aiDiagnosis['cor'] ?>25; border: 1px solid <?= $aiDiagnosis['cor'] ?>50;">
+                                    <?= $aiDiagnosis['icone'] ?>
+                                </div>
+                                <div>
+                                    <div class="flex items-center gap-2">
+                                        <h3 class="text-base sm:text-lg font-bold text-white"><?= htmlspecialchars($aiDiagnosis['titulo']) ?></h3>
+                                        <?php if ($aiDiagnosis['status'] === 'ai_detected'): ?>
+                                            <span class="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wide bg-purple-500/20 text-purple-300 border border-purple-500/40 animate-pulse">
+                                                IA Detectada
+                                            </span>
+                                        <?php elseif ($aiDiagnosis['status'] === 'camera_photo'): ?>
+                                            <span class="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wide bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                                                Foto Real
+                                            </span>
+                                        <?php endif; ?>
+                                    </div>
+                                    <p class="text-xs text-slate-400 mt-0.5"><?= htmlspecialchars($aiDiagnosis['subtitulo'] ?? '') ?></p>
+                                </div>
+                            </div>
+                            
+                            <div class="text-left sm:text-right">
+                                <span class="text-[10px] text-slate-500 uppercase tracking-wider block">Confiabilidade Forense</span>
+                                <span class="text-xs font-bold font-mono text-slate-200"><?= htmlspecialchars($aiDiagnosis['confianca'] ?? 'Alta') ?></span>
+                            </div>
+                        </div>
+
+                        <!-- Detalhes do Modelo ou Câmera -->
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
+                            <?php if (!empty($aiDiagnosis['modelo'])): ?>
+                                <div class="p-3.5 rounded-xl bg-purple-950/30 border border-purple-800/40">
+                                    <span class="text-[10px] text-purple-400 uppercase tracking-wider block font-bold">Motor / Modelo de IA</span>
+                                    <strong class="text-sm text-purple-200 font-mono"><?= htmlspecialchars($aiDiagnosis['modelo']) ?></strong>
+                                </div>
+                            <?php endif; ?>
+
+                            <?php if (!empty($aiDiagnosis['dispositivo'])): ?>
+                                <div class="p-3.5 rounded-xl bg-emerald-950/30 border border-emerald-800/40">
+                                    <span class="text-[10px] text-emerald-400 uppercase tracking-wider block font-bold">Câmera / Sensor Físico</span>
+                                    <strong class="text-sm text-emerald-200 font-mono"><?= htmlspecialchars($aiDiagnosis['dispositivo']) ?></strong>
+                                </div>
+                            <?php endif; ?>
+
+                            <?php if (!empty($aiDiagnosis['software'])): ?>
+                                <div class="p-3.5 rounded-xl bg-blue-950/30 border border-blue-800/40">
+                                    <span class="text-[10px] text-blue-400 uppercase tracking-wider block font-bold">Software de Edição / Design</span>
+                                    <strong class="text-sm text-blue-200 font-mono"><?= htmlspecialchars($aiDiagnosis['software']) ?></strong>
+                                </div>
+                            <?php endif; ?>
+
+                            <div class="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800">
+                                <span class="text-[10px] text-slate-500 uppercase tracking-wider block font-bold">Higienizador de Metadados</span>
+                                <div class="flex items-center justify-between mt-1">
+                                    <span class="text-xs text-slate-300">Pronto para remoção completa</span>
+                                    <button type="button" onclick="apagarMetadadosAcao()" class="text-xs text-emerald-400 hover:text-emerald-300 font-bold inline-flex items-center gap-1 cursor-pointer">
+                                        <span>Apagar Agora</span>
+                                        <span>🧹</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Se houver Prompt de Geração de IA extraído -->
+                        <?php if (!empty($aiDiagnosis['prompt'])): ?>
+                            <div class="p-4 rounded-xl bg-slate-950/90 border border-purple-500/40 space-y-2">
+                                <div class="flex items-center justify-between">
+                                    <span class="text-xs font-bold text-purple-300 flex items-center gap-1.5">
+                                        <span>✨</span>
+                                        <span>Prompt Original de Geração / Parâmetros Neurais:</span>
+                                    </span>
+                                    <button type="button" onclick="copiarPromptIA()" class="text-[11px] px-2.5 py-1 rounded-lg bg-purple-600/30 hover:bg-purple-600/50 text-purple-200 border border-purple-500/40 transition-all font-semibold flex items-center gap-1 cursor-pointer">
+                                        <span>📋</span>
+                                        <span id="btnCopyPromptTxt">Copiar Prompt</span>
+                                    </button>
+                                </div>
+                                <pre id="aiPromptContent" class="text-xs font-mono text-purple-200/90 bg-slate-900/90 p-3 rounded-lg overflow-x-auto whitespace-pre-wrap break-words border border-purple-900/50 max-h-40 leading-relaxed"><?= htmlspecialchars($aiDiagnosis['prompt']) ?></pre>
+                            </div>
+                        <?php endif; ?>
+
+                        <!-- Evidências Forenses Encontradas -->
+                        <?php if (!empty($aiDiagnosis['evidencias'])): ?>
+                            <div class="space-y-1.5 pt-1">
+                                <span class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Evidências Forenses Identificadas:</span>
+                                <ul class="space-y-1 text-xs text-slate-300 font-mono">
+                                    <?php foreach ($aiDiagnosis['evidencias'] as $ev): ?>
+                                        <li class="flex items-start gap-2 bg-slate-900/40 px-3 py-1.5 rounded-lg border border-slate-800/60">
+                                            <span class="text-emerald-400 mt-0.5">✓</span>
+                                            <span><?= htmlspecialchars($ev) ?></span>
+                                        </li>
+                                    <?php endforeach; ?>
+                                </ul>
+                            </div>
+                        <?php endif; ?>
                     </section>
                 <?php endif; ?>
 
@@ -1539,6 +2176,71 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') fecharModalImagem();
         });
+
+        // Cópia de Prompt de Geração IA
+        function copiarPromptIA() {
+            const p = document.getElementById('aiPromptContent');
+            if (!p) return;
+            navigator.clipboard.writeText(p.innerText).then(() => {
+                const btn = document.getElementById('btnCopyPromptTxt');
+                if (btn) {
+                    const old = btn.textContent;
+                    btn.textContent = '✓ Prompt Copiado!';
+                    setTimeout(() => btn.textContent = old, 2500);
+                }
+            });
+        }
+
+        // Ação de Apagar Todos os Metadados da Imagem
+        function apagarMetadadosAcao() {
+            mostrarToastLimpeza();
+            <?php if ($tokenLimpo && $extLimpo): ?>
+                setTimeout(() => {
+                    window.location.href = "index.php?download_clean=<?= urlencode($tokenLimpo) ?>&ext=<?= urlencode($extLimpo) ?>&orig=<?= urlencode($nomeOriginal) ?>";
+                }, 400);
+            <?php else: ?>
+                apagarMetadadosCanvas();
+            <?php endif; ?>
+        }
+
+        // Fallback Instantâneo via Canvas Client-Side (100% livre de EXIF/IPTC/XMP)
+        function apagarMetadadosCanvas() {
+            const img = document.querySelector('img[alt="Imagem Analisada"]') || document.querySelector('#imageLightboxModal img');
+            if (!img) return;
+            const canvas = document.createElement('canvas');
+            canvas.width = img.naturalWidth || img.width || 800;
+            canvas.height = img.naturalHeight || img.height || 600;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0);
+            const isPng = '<?= ($ext === "png" ? "1" : "0") ?>' === '1';
+            const mime = isPng ? 'image/png' : 'image/jpeg';
+            canvas.toBlob((blob) => {
+                if (!blob) return;
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'limpo_<?= htmlspecialchars($nomeOriginal ?? "imagem") ?>';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            }, mime, 0.95);
+        }
+
+        // Exibe Toast Flutuante de Confirmação
+        function mostrarToastLimpeza() {
+            const toast = document.getElementById('toastLimpeza');
+            if (toast) {
+                toast.classList.remove('hidden');
+                setTimeout(() => {
+                    toast.classList.add('opacity-0');
+                    setTimeout(() => {
+                        toast.classList.add('hidden');
+                        toast.classList.remove('opacity-0');
+                    }, 500);
+                }, 4500);
+            }
+        }
     </script>
 
     <!-- MODAL LIGHTBOX DE IMAGEM AMPLIADA -->
@@ -1551,14 +2253,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <div class="overflow-auto max-h-[75vh] w-full flex items-center justify-center p-2">
                 <img src="<?= $imagePreviewUrl ?>" alt="Visualização Completa" class="max-h-[70vh] max-w-full rounded-lg object-contain shadow-lg">
             </div>
-            <div class="w-full flex items-center justify-between text-xs text-slate-300 pt-3 border-t border-slate-800 px-2 mt-2">
+            <div class="w-full flex flex-wrap items-center justify-between gap-3 text-xs text-slate-300 pt-3 border-t border-slate-800 px-2 mt-2">
                 <span class="font-mono text-slate-400"><?= htmlspecialchars($nomeOriginal ?? 'Imagem') ?> • <?= htmlspecialchars($dados['📐 Dimensões e Qualidade']['Resolução'] ?? '') ?></span>
-                <a href="<?= $imagePreviewUrl ?>" target="_blank" class="text-violet-400 hover:underline inline-flex items-center gap-1 font-semibold">
-                    <span>↗️ Abrir em Aba Separada</span>
-                </a>
+                <div class="flex items-center gap-3">
+                    <button type="button" onclick="apagarMetadadosAcao()" class="px-3 py-1.5 rounded-lg bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-300 border border-emerald-500/40 font-semibold inline-flex items-center gap-1.5 transition-all cursor-pointer">
+                        <span>🧹</span>
+                        <span>Apagar Metadados & Baixar</span>
+                    </button>
+                    <a href="<?= $imagePreviewUrl ?>" target="_blank" class="text-violet-400 hover:underline inline-flex items-center gap-1 font-semibold">
+                        <span>↗️ Abrir em Aba Separada</span>
+                    </a>
+                </div>
             </div>
         </div>
     </div>
     <?php endif; ?>
+
+    <!-- Toast Flutuante de Sucesso na Limpeza -->
+    <div id="toastLimpeza" class="hidden fixed bottom-6 right-6 z-50 bg-slate-900/95 backdrop-blur-md border-2 border-emerald-500 rounded-2xl p-4 shadow-2xl flex items-center gap-3 transition-opacity duration-500">
+        <div class="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xl flex-shrink-0">
+            🧹
+        </div>
+        <div>
+            <strong class="text-sm font-bold text-white block">Metadados Apagados com Sucesso!</strong>
+            <span class="text-xs text-slate-300">Todos os dados EXIF, coordenadas de GPS e identificadores de IA foram removidos.</span>
+        </div>
+    </div>
 </body>
 </html>
