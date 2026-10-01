@@ -2,9 +2,9 @@
 header('Content-Type: text/html; charset=UTF-8');
 /**
  * ==========================================================================
- * 🚀 4U METAVIEWER PRO — VERSÃO 5.0 ULTIMATE
+ * 🚀 4U METAVIEWER PRO — VERSÃO 5.1 ULTIMATE
  * Análise Forense de Metadados, Higienização de Arquivos (Sanitizer LGPD),
- * Geolocalização em Mapa Interativo (Leaflet/OSM) & Detecção de IA
+ * Visualização da Imagem, Geolocalização em Mapa Interativo (Leaflet/OSM) & Detecção de IA
  * Suporte: PDF, DOCX, XLSX, JPG, PNG, WEBP, TIFF, MP3, MP4, HTML e mais
  * ==========================================================================
  */
@@ -64,6 +64,7 @@ $nomeOriginal = null;
 $privacyScore = null;
 $iaDetectada = [];
 $softwaresDetectados = [];
+$imagePreviewUrl = null; // Data URI para exibição da imagem analisada
 
 // Funções Utilitárias de Conversão e Formatação
 function formatarTamanho($bytes) {
@@ -329,6 +330,53 @@ if ($demo) {
         $corTopo = "#ec4899";
         $badges = ['Imagem', 'JPG', 'Geolocalizado (GPS)', 'iPhone 15 Pro'];
         $gpsCoords = ['lat' => -23.561414, 'lng' => -46.655881, 'alt' => '760 metros'];
+
+        // Ilustração SVG de Alta Definição da Avenida Paulista / MASP
+        $imagePreviewUrl = 'data:image/svg+xml;utf8,' . rawurlencode('
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" width="100%" height="100%">
+  <defs>
+    <linearGradient id="sky" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1e1b4b"/>
+      <stop offset="35%" stop-color="#312e81"/>
+      <stop offset="65%" stop-color="#4c1d95"/>
+      <stop offset="100%" stop-color="#f43f5e"/>
+    </linearGradient>
+    <linearGradient id="bldg" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+    <linearGradient id="maspRed" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ef4444"/>
+      <stop offset="100%" stop-color="#b91c1c"/>
+    </linearGradient>
+    <linearGradient id="glass" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.85"/>
+      <stop offset="100%" stop-color="#0284c7" stop-opacity="0.95"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="600" fill="url(#sky)"/>
+  <circle cx="680" cy="180" r="45" fill="#fde047" opacity="0.85"/>
+  <rect x="20" y="240" width="70" height="360" fill="url(#bldg)"/>
+  <rect x="110" y="190" width="90" height="410" fill="url(#bldg)"/>
+  <rect x="220" y="220" width="80" height="380" fill="url(#bldg)"/>
+  <rect x="520" y="210" width="85" height="390" fill="url(#bldg)"/>
+  <rect x="625" y="170" width="95" height="430" fill="url(#bldg)"/>
+  <rect x="735" y="250" width="60" height="350" fill="url(#bldg)"/>
+  <rect x="310" y="270" width="24" height="250" rx="4" fill="url(#maspRed)"/>
+  <rect x="490" y="270" width="24" height="250" rx="4" fill="url(#maspRed)"/>
+  <rect x="310" y="270" width="204" height="22" rx="4" fill="url(#maspRed)"/>
+  <rect x="310" y="470" width="204" height="22" rx="4" fill="url(#maspRed)"/>
+  <rect x="326" y="292" width="172" height="178" rx="2" fill="url(#glass)"/>
+  <line x1="370" y1="292" x2="370" y2="470" stroke="#bae6fd" stroke-width="2" opacity="0.6"/>
+  <line x1="412" y1="292" x2="412" y2="470" stroke="#bae6fd" stroke-width="2" opacity="0.6"/>
+  <line x1="454" y1="292" x2="454" y2="470" stroke="#bae6fd" stroke-width="2" opacity="0.6"/>
+  <rect x="0" y="520" width="800" height="80" fill="#090d16"/>
+  <line x1="0" y1="560" x2="800" y2="560" stroke="#fbbf24" stroke-width="4" stroke-dasharray="25,20"/>
+  <rect x="30" y="30" width="740" height="540" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="1.5" stroke-dasharray="15,10"/>
+  <text x="50" y="65" fill="#ffffff" font-family="system-ui, sans-serif" font-size="14" font-weight="700" letter-spacing="1">RAW MAX 48MP • 24mm f/1.78 • ISO 50</text>
+  <text x="50" y="85" fill="#38bdf8" font-family="system-ui, sans-serif" font-size="12" font-weight="600">📍 -23.561414, -46.655881 (MASP, Av. Paulista — São Paulo)</text>
+  <rect x="375" y="285" width="50" height="30" fill="none" stroke="#fde047" stroke-width="2"/>
+</svg>');
         
         $hashes = [
             'MD5' => 'e2fc714c4727ee9395f324cd2e7f331f',
@@ -499,269 +547,275 @@ if ($demo) {
 // ==========================================================================
 // PROCESSAMENTO DO UPLOAD REAL
 // ==========================================================================
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['arquivo'])) {
-    $file = $_FILES['arquivo'];
-
-    if ($file['error'] !== UPLOAD_ERR_OK) {
-        $codigosErro = [
-            1 => 'O arquivo excede o limite de upload do servidor (upload_max_filesize)',
-            2 => 'O arquivo excede o limite do formulário',
-            3 => 'O upload foi feito apenas parcialmente',
-            4 => 'Nenhum arquivo foi enviado',
-            6 => 'Pasta temporária ausente no servidor',
-            7 => 'Falha ao escrever arquivo no disco',
-            8 => 'Uma extensão do PHP interrompeu o upload'
-        ];
-        $erro = $codigosErro[$file['error']] ?? 'Erro desconhecido no upload.';
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!isset($_FILES['arquivo']) || empty($_FILES['arquivo']['name'])) {
+        $erro = "Nenhum arquivo recebido pelo servidor. O arquivo pode ter excedido o limite de upload do servidor (máximo 64 MB).";
     } else {
-        $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
-        $tmpPath = $file['tmp_name'];
-        $nomeOriginal = $file['name'];
-        $dados = [];
+        $file = $_FILES['arquivo'];
 
-        try {
-            $mimeReal = detectarMimeReal($tmpPath);
-            $hashes = calcularHashes($tmpPath);
-            $fileStats = stat($tmpPath);
-
-            // Gera cópia higienizada (sanitizada) pronta para download
-            $tokenLimpo = higienizarArquivo($tmpPath, $ext);
-            $extLimpo = $ext;
-
-            $dados['📝 Nome do Arquivo'] = $nomeOriginal;
-
-            $dados['🔐 Assinatura Digital & Hashes'] = [
-                'MD5' => $hashes['MD5'],
-                'SHA-1' => $hashes['SHA-1'],
-                'SHA-256' => $hashes['SHA-256'],
-                'CRC32' => $hashes['CRC32']
+        if ($file['error'] !== UPLOAD_ERR_OK) {
+            $codigosErro = [
+                UPLOAD_ERR_INI_SIZE => 'O arquivo excede o limite de upload do servidor (upload_max_filesize).',
+                UPLOAD_ERR_FORM_SIZE => 'O arquivo excede o limite permitido pelo formulário.',
+                UPLOAD_ERR_PARTIAL => 'O upload do arquivo foi interrompido e concluído apenas parcialmente.',
+                UPLOAD_ERR_NO_FILE => 'Nenhum arquivo foi enviado.',
+                UPLOAD_ERR_NO_TMP_DIR => 'Pasta temporária ausente no servidor.',
+                UPLOAD_ERR_CANT_WRITE => 'Falha ao gravar o arquivo temporário no disco.',
+                UPLOAD_ERR_EXTENSION => 'Uma extensão do PHP interrompeu o envio do arquivo.'
             ];
+            $erro = $codigosErro[$file['error']] ?? 'Erro no upload do arquivo (código: ' . $file['error'] . ').';
+        } else {
+            $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+            $tmpPath = $file['tmp_name'];
+            $nomeOriginal = $file['name'];
+            $dados = [];
 
-            $dados['📊 Informações do Sistema'] = [
-                'MIME Type Detectado' => $mimeReal,
-                'Tamanho em Disco' => formatarTamanho($fileStats['size']),
-                'Tamanho Bruto' => number_format($fileStats['size'], 0, ',', '.') . ' bytes',
-                'Permissões' => substr(sprintf('%o', $fileStats['mode']), -4),
-                'Última Modificação' => date('d/m/Y H:i:s', $fileStats['mtime'])
-            ];
+            try {
+                $mimeReal = detectarMimeReal($tmpPath);
+                $hashes = calcularHashes($tmpPath);
+                $fileStats = stat($tmpPath);
 
-            // 1. IMAGENS (JPG, PNG, WEBP, TIFF, BMP, GIF)
-            if (in_array($ext, ['jpg', 'jpeg', 'png', 'tiff', 'webp', 'gif', 'bmp'])) {
-                $icone = "🖼️";
-                $corTopo = "#ec4899";
-                $badges = ['Imagem', 'Visual', strtoupper($ext)];
-
-                $size = @getimagesize($tmpPath);
-                if ($size) {
-                    $megapixels = ($size[0] * $size[1]) / 1000000;
-                    $aspectRatio = round($size[0] / $size[1], 2);
-                    $orientation = $size[1] > $size[0] ? 'Retrato (Vertical)' : ($size[0] == $size[1] ? 'Quadrada' : 'Paisagem (Horizontal)');
-
-                    $widthCm = round(($size[0] / 300) * 2.54, 1);
-                    $heightCm = round(($size[1] / 300) * 2.54, 1);
-
-                    $dados['📐 Dimensões e Qualidade'] = [
-                        'Resolução' => $size[0] . ' × ' . $size[1] . ' pixels',
-                        'Megapixels' => number_format($megapixels, 2) . ' MP',
-                        'Proporção' => $aspectRatio . ':1',
-                        'Orientação' => $orientation,
-                        'Bits por Canal' => ($size['bits'] ?? 8) . '-bit',
-                        'Tipo MIME' => $size['mime'],
-                        'Tamanho Impresso (300 DPI)' => $widthCm . ' × ' . $heightCm . ' cm'
-                    ];
-
-                    $estatisticas[] = ['label' => 'Resolução', 'value' => number_format($megapixels, 1) . ' MP', 'color' => 'blue'];
-                    $estatisticas[] = ['label' => 'Qualidade', 'value' => ($megapixels > 12 ? 'Alta Resolução' : ($megapixels > 4 ? 'Boa Resolução' : 'Padrão')), 'color' => 'green'];
+                // Se for imagem, extrai Data URI para preview visual instantâneo
+                if (in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp']) && file_exists($tmpPath)) {
+                    $rawBytes = @file_get_contents($tmpPath);
+                    if ($rawBytes && strlen($rawBytes) <= 15 * 1024 * 1024) {
+                        $imagePreviewUrl = 'data:' . $mimeReal . ';base64,' . base64_encode($rawBytes);
+                    }
                 }
 
-                // Leitura EXIF e Decodificação de GPS
-                if (function_exists('exif_read_data') && in_array($ext, ['jpg', 'jpeg', 'tiff'])) {
-                    $exif = @exif_read_data($tmpPath, 0, true);
-                    if ($exif && is_array($exif)) {
-                        // GPS Completo com Mapa
-                        if (isset($exif['GPS']) && !empty($exif['GPS'])) {
-                            if (isset($exif['GPS']['GPSLatitude']) && isset($exif['GPS']['GPSLongitude']) && isset($exif['GPS']['GPSLatitudeRef']) && isset($exif['GPS']['GPSLongitudeRef'])) {
-                                $lat = converterGpsCoord($exif['GPS']['GPSLatitude'], $exif['GPS']['GPSLatitudeRef']);
-                                $lng = converterGpsCoord($exif['GPS']['GPSLongitude'], $exif['GPS']['GPSLongitudeRef']);
+                // Gera cópia higienizada (sanitizada) pronta para download
+                $tokenLimpo = higienizarArquivo($tmpPath, $ext);
+                $extLimpo = $ext;
 
-                                if ($lat !== null && $lng !== null) {
-                                    $alt = isset($exif['GPS']['GPSAltitude']) ? (avaliarFracao($exif['GPS']['GPSAltitude']) . ' m') : 'Não informada';
-                                    $gpsCoords = ['lat' => $lat, 'lng' => $lng, 'alt' => $alt];
+                $dados['📝 Nome do Arquivo'] = $nomeOriginal;
 
-                                    $dados['🌐 Geolocalização Exata (GPS)'] = [
-                                        'Latitude Decimal' => $lat . '°',
-                                        'Longitude Decimal' => $lng . '°',
-                                        'Altitude' => $alt,
-                                        'Referência' => 'Coordenadas decodificadas de EXIF GPS'
-                                    ];
+                $dados['🔐 Assinatura Digital & Hashes'] = [
+                    'MD5' => $hashes['MD5'],
+                    'SHA-1' => $hashes['SHA-1'],
+                    'SHA-256' => $hashes['SHA-256'],
+                    'CRC32' => $hashes['CRC32']
+                ];
 
-                                    $badges[] = 'Geolocalizado (GPS)';
-                                    $estatisticas[] = ['label' => 'Geotag', 'value' => 'GPS Ativo', 'color' => 'red'];
-                                    $alertas[] = '🌍 Este arquivo expõe a localização geográfica exata onde a foto foi tirada!';
+                $dados['📊 Informações do Sistema'] = [
+                    'MIME Type Detectado' => $mimeReal,
+                    'Tamanho em Disco' => formatarTamanho($fileStats['size']),
+                    'Tamanho Bruto' => number_format($fileStats['size'], 0, ',', '.') . ' bytes',
+                    'Permissões' => substr(sprintf('%o', $fileStats['mode']), -4),
+                    'Última Modificação' => date('d/m/Y H:i:s', $fileStats['mtime'])
+                ];
+
+                // 1. IMAGENS (JPG, PNG, WEBP, TIFF, BMP, GIF)
+                if (in_array($ext, ['jpg', 'jpeg', 'png', 'tiff', 'webp', 'gif', 'bmp'])) {
+                    $icone = "🖼️";
+                    $corTopo = "#ec4899";
+                    $badges = ['Imagem', 'Visual', strtoupper($ext)];
+
+                    $size = @getimagesize($tmpPath);
+                    if ($size) {
+                        $megapixels = ($size[0] * $size[1]) / 1000000;
+                        $aspectRatio = round($size[0] / $size[1], 2);
+                        $orientation = $size[1] > $size[0] ? 'Retrato (Vertical)' : ($size[0] == $size[1] ? 'Quadrada' : 'Paisagem (Horizontal)');
+
+                        $widthCm = round(($size[0] / 300) * 2.54, 1);
+                        $heightCm = round(($size[1] / 300) * 2.54, 1);
+
+                        $dados['📐 Dimensões e Qualidade'] = [
+                            'Resolução' => $size[0] . ' × ' . $size[1] . ' pixels',
+                            'Megapixels' => number_format($megapixels, 2) . ' MP',
+                            'Proporção' => $aspectRatio . ':1',
+                            'Orientação' => $orientation,
+                            'Bits por Canal' => ($size['bits'] ?? 8) . '-bit',
+                            'Tipo MIME' => $size['mime'],
+                            'Tamanho Impresso (300 DPI)' => $widthCm . ' × ' . $heightCm . ' cm'
+                        ];
+
+                        $estatisticas[] = ['label' => 'Resolução', 'value' => number_format($megapixels, 1) . ' MP', 'color' => 'blue'];
+                        $estatisticas[] = ['label' => 'Qualidade', 'value' => ($megapixels > 12 ? 'Alta Resolução' : ($megapixels > 4 ? 'Boa Resolução' : 'Padrão')), 'color' => 'green'];
+                    }
+
+                    // Leitura EXIF e Decodificação de GPS
+                    if (function_exists('exif_read_data') && in_array($ext, ['jpg', 'jpeg', 'tiff'])) {
+                        $exif = @exif_read_data($tmpPath, 0, true);
+                        if ($exif && is_array($exif)) {
+                            // GPS Completo com Mapa
+                            if (isset($exif['GPS']) && !empty($exif['GPS'])) {
+                                if (isset($exif['GPS']['GPSLatitude']) && isset($exif['GPS']['GPSLongitude']) && isset($exif['GPS']['GPSLatitudeRef']) && isset($exif['GPS']['GPSLongitudeRef'])) {
+                                    $lat = converterGpsCoord($exif['GPS']['GPSLatitude'], $exif['GPS']['GPSLatitudeRef']);
+                                    $lng = converterGpsCoord($exif['GPS']['GPSLongitude'], $exif['GPS']['GPSLongitudeRef']);
+
+                                    if ($lat !== null && $lng !== null) {
+                                        $alt = isset($exif['GPS']['GPSAltitude']) ? (avaliarFracao($exif['GPS']['GPSAltitude']) . ' m') : 'Não informada';
+                                        $gpsCoords = ['lat' => $lat, 'lng' => $lng, 'alt' => $alt];
+
+                                        $dados['🌐 Geolocalização Exata (GPS)'] = [
+                                            'Latitude Decimal' => $lat . '°',
+                                            'Longitude Decimal' => $lng . '°',
+                                            'Altitude' => $alt,
+                                            'Referência' => 'Coordenadas decodificadas de EXIF GPS'
+                                        ];
+
+                                        $badges[] = 'Geolocalizado (GPS)';
+                                        $estatisticas[] = ['label' => 'Geotag', 'value' => 'GPS Ativo', 'color' => 'red'];
+                                        $alertas[] = '🌍 Este arquivo expõe a localização geográfica exata onde a foto foi tirada!';
+                                    }
                                 }
                             }
-                        }
 
-                        // Equipamento Fotográfico
-                        $cameraData = [];
-                        if (!empty($exif['IFD0']['Make'])) $cameraData['Fabricante'] = $exif['IFD0']['Make'];
-                        if (!empty($exif['IFD0']['Model'])) $cameraData['Modelo'] = $exif['IFD0']['Model'];
-                        if (!empty($exif['IFD0']['Software'])) $cameraData['Software'] = $exif['IFD0']['Software'];
-                        if (!empty($exif['EXIF']['LensModel'])) $cameraData['Lente'] = $exif['EXIF']['LensModel'];
-                        if (!empty($exif['EXIF']['ExposureTime'])) $cameraData['Velocidade Obturador'] = $exif['EXIF']['ExposureTime'] . ' s';
-                        if (!empty($exif['EXIF']['FNumber'])) $cameraData['Abertura'] = 'f/' . avaliarFracao($exif['EXIF']['FNumber']);
-                        if (!empty($exif['EXIF']['ISOSpeedRatings'])) $cameraData['ISO'] = 'ISO ' . $exif['EXIF']['ISOSpeedRatings'];
+                            // Equipamento Fotográfico
+                            $cameraData = [];
+                            if (!empty($exif['IFD0']['Make'])) $cameraData['Fabricante'] = $exif['IFD0']['Make'];
+                            if (!empty($exif['IFD0']['Model'])) $cameraData['Modelo'] = $exif['IFD0']['Model'];
+                            if (!empty($exif['IFD0']['Software'])) $cameraData['Software'] = $exif['IFD0']['Software'];
+                            if (!empty($exif['EXIF']['LensModel'])) $cameraData['Lente'] = $exif['EXIF']['LensModel'];
+                            if (!empty($exif['EXIF']['ExposureTime'])) $cameraData['Velocidade Obturador'] = $exif['EXIF']['ExposureTime'] . ' s';
+                            if (!empty($exif['EXIF']['FNumber'])) $cameraData['Abertura'] = 'f/' . avaliarFracao($exif['EXIF']['FNumber']);
+                            if (!empty($exif['EXIF']['ISOSpeedRatings'])) $cameraData['ISO'] = 'ISO ' . $exif['EXIF']['ISOSpeedRatings'];
 
-                        if (!empty($cameraData)) {
-                            $dados['📷 Equipamento & Configurações da Câmera'] = $cameraData;
-                            if (isset($cameraData['Modelo'])) $badges[] = $cameraData['Modelo'];
-                        }
-                    }
-                }
-            }
-
-            // 2. DOCUMENTOS WORD (DOCX)
-            elseif ($ext === 'docx') {
-                $icone = "📘";
-                $corTopo = "#2563eb";
-                $badges = ['Documento', 'Word', 'DOCX'];
-
-                if (class_exists('ZipArchive')) {
-                    $zip = new ZipArchive();
-                    if ($zip->open($tmpPath) === TRUE) {
-                        // Core.xml
-                        $coreXml = $zip->getFromName('docProps/core.xml');
-                        if ($coreXml) {
-                            $coreData = [];
-                            if (preg_match('/<dc:creator[^>]*>(.*?)<\/dc:creator>/is', $coreXml, $m)) $coreData['Autor Original'] = trim(strip_tags($m[1]));
-                            if (preg_match('/<cp:lastModifiedBy[^>]*>(.*?)<\/cp:lastModifiedBy>/is', $coreXml, $m)) $coreData['Última Modificação Por'] = trim(strip_tags($m[1]));
-                            if (preg_match('/<dc:title[^>]*>(.*?)<\/dc:title>/is', $coreXml, $m)) $coreData['Título'] = trim(strip_tags($m[1]));
-                            if (preg_match('/<cp:revision[^>]*>(.*?)<\/cp:revision>/is', $coreXml, $m)) $coreData['Número da Revisão'] = trim(strip_tags($m[1]));
-                            if (preg_match('/<dcterms:created[^>]*>(.*?)<\/dcterms:created>/is', $coreXml, $m)) $coreData['Data de Criação'] = trim(strip_tags($m[1]));
-                            if (preg_match('/<dcterms:modified[^>]*>(.*?)<\/dcterms:modified>/is', $coreXml, $m)) $coreData['Última Modificação'] = trim(strip_tags($m[1]));
-
-                            if (!empty($coreData)) {
-                                $dados['👤 Metadados de Autoria (Core.xml)'] = $coreData;
+                            if (!empty($cameraData)) {
+                                $dados['📷 Equipamento & Configurações da Câmera'] = $cameraData;
+                                if (isset($cameraData['Modelo'])) $badges[] = $cameraData['Modelo'];
                             }
                         }
+                    }
+                }
 
-                        // App.xml
-                        $appXml = $zip->getFromName('docProps/app.xml');
-                        if ($appXml) {
-                            $appData = [];
-                            if (preg_match('/<Company[^>]*>(.*?)<\/Company>/is', $appXml, $m)) $appData['Empresa / Organização'] = trim(strip_tags($m[1]));
-                            if (preg_match('/<Application[^>]*>(.*?)<\/Application>/is', $appXml, $m)) $appData['Software Criador'] = trim(strip_tags($m[1]));
-                            if (preg_match('/<Pages[^>]*>(.*?)<\/Pages>/is', $appXml, $m)) $appData['Páginas'] = trim(strip_tags($m[1]));
-                            if (preg_match('/<Words[^>]*>(.*?)<\/Words>/is', $appXml, $m)) $appData['Palavras'] = trim(strip_tags($m[1]));
-                            if (preg_match('/<TotalTime[^>]*>(.*?)<\/TotalTime>/is', $appXml, $m)) $appData['Tempo de Edição'] = trim(strip_tags($m[1])) . ' minutos';
+                // 2. DOCUMENTOS WORD (DOCX)
+                elseif ($ext === 'docx') {
+                    $icone = "📘";
+                    $corTopo = "#2563eb";
+                    $badges = ['Documento', 'Word', 'DOCX'];
 
-                            if (!empty($appData)) {
-                                $dados['🏢 Metadados Corporativos (App.xml)'] = $appData;
+                    if (class_exists('ZipArchive')) {
+                        $zip = new ZipArchive();
+                        if ($zip->open($tmpPath) === TRUE) {
+                            $coreXml = $zip->getFromName('docProps/core.xml');
+                            if ($coreXml) {
+                                $coreData = [];
+                                if (preg_match('/<dc:creator[^>]*>(.*?)<\/dc:creator>/is', $coreXml, $m)) $coreData['Autor Original'] = trim(strip_tags($m[1]));
+                                if (preg_match('/<cp:lastModifiedBy[^>]*>(.*?)<\/cp:lastModifiedBy>/is', $coreXml, $m)) $coreData['Última Modificação Por'] = trim(strip_tags($m[1]));
+                                if (preg_match('/<dc:title[^>]*>(.*?)<\/dc:title>/is', $coreXml, $m)) $coreData['Título'] = trim(strip_tags($m[1]));
+                                if (preg_match('/<cp:revision[^>]*>(.*?)<\/cp:revision>/is', $coreXml, $m)) $coreData['Número da Revisão'] = trim(strip_tags($m[1]));
+                                if (preg_match('/<dcterms:created[^>]*>(.*?)<\/dcterms:created>/is', $coreXml, $m)) $coreData['Data de Criação'] = trim(strip_tags($m[1]));
+                                if (preg_match('/<dcterms:modified[^>]*>(.*?)<\/dcterms:modified>/is', $coreXml, $m)) $coreData['Última Modificação'] = trim(strip_tags($m[1]));
+
+                                if (!empty($coreData)) $dados['👤 Metadados de Autoria (Core.xml)'] = $coreData;
                             }
+
+                            $appXml = $zip->getFromName('docProps/app.xml');
+                            if ($appXml) {
+                                $appData = [];
+                                if (preg_match('/<Company[^>]*>(.*?)<\/Company>/is', $appXml, $m)) $appData['Empresa / Organização'] = trim(strip_tags($m[1]));
+                                if (preg_match('/<Application[^>]*>(.*?)<\/Application>/is', $appXml, $m)) $appData['Software Criador'] = trim(strip_tags($m[1]));
+                                if (preg_match('/<Pages[^>]*>(.*?)<\/Pages>/is', $appXml, $m)) $appData['Páginas'] = trim(strip_tags($m[1]));
+                                if (preg_match('/<Words[^>]*>(.*?)<\/Words>/is', $appXml, $m)) $appData['Palavras'] = trim(strip_tags($m[1]));
+                                if (preg_match('/<TotalTime[^>]*>(.*?)<\/TotalTime>/is', $appXml, $m)) $appData['Tempo de Edição'] = trim(strip_tags($m[1])) . ' minutos';
+
+                                if (!empty($appData)) $dados['🏢 Metadados Corporativos (App.xml)'] = $appData;
+                            }
+                            $zip->close();
                         }
-                        $zip->close();
                     }
                 }
-            }
 
-            // 3. PLANILHAS EXCEL (XLSX)
-            elseif ($ext === 'xlsx') {
-                $icone = "📊";
-                $corTopo = "#059669";
-                $badges = ['Planilha', 'Excel', 'XLSX'];
+                // 3. PLANILHAS EXCEL (XLSX)
+                elseif ($ext === 'xlsx') {
+                    $icone = "📊";
+                    $corTopo = "#059669";
+                    $badges = ['Planilha', 'Excel', 'XLSX'];
 
-                if (class_exists('ZipArchive')) {
-                    $zip = new ZipArchive();
-                    if ($zip->open($tmpPath) === TRUE) {
-                        $coreXml = $zip->getFromName('docProps/core.xml');
-                        if ($coreXml) {
-                            $coreData = [];
-                            if (preg_match('/<dc:creator[^>]*>(.*?)<\/dc:creator>/is', $coreXml, $m)) $coreData['Criador'] = trim(strip_tags($m[1]));
-                            if (preg_match('/<cp:lastModifiedBy[^>]*>(.*?)<\/cp:lastModifiedBy>/is', $coreXml, $m)) $coreData['Última Modificação Por'] = trim(strip_tags($m[1]));
-                            if (preg_match('/<dc:title[^>]*>(.*?)<\/dc:title>/is', $coreXml, $m)) $coreData['Título'] = trim(strip_tags($m[1]));
+                    if (class_exists('ZipArchive')) {
+                        $zip = new ZipArchive();
+                        if ($zip->open($tmpPath) === TRUE) {
+                            $coreXml = $zip->getFromName('docProps/core.xml');
+                            if ($coreXml) {
+                                $coreData = [];
+                                if (preg_match('/<dc:creator[^>]*>(.*?)<\/dc:creator>/is', $coreXml, $m)) $coreData['Criador'] = trim(strip_tags($m[1]));
+                                if (preg_match('/<cp:lastModifiedBy[^>]*>(.*?)<\/cp:lastModifiedBy>/is', $coreXml, $m)) $coreData['Última Modificação Por'] = trim(strip_tags($m[1]));
+                                if (preg_match('/<dc:title[^>]*>(.*?)<\/dc:title>/is', $coreXml, $m)) $coreData['Título'] = trim(strip_tags($m[1]));
 
-                            if (!empty($coreData)) $dados['👤 Metadados de Autoria'] = $coreData;
+                                if (!empty($coreData)) $dados['👤 Metadados de Autoria'] = $coreData;
+                            }
+                            $zip->close();
                         }
-                        $zip->close();
                     }
                 }
-            }
 
-            // 4. DOCUMENTOS PDF
-            elseif ($ext === 'pdf') {
-                $icone = "📄";
-                $corTopo = "#dc2626";
-                $badges = ['Documento', 'PDF'];
+                // 4. DOCUMENTOS PDF
+                elseif ($ext === 'pdf') {
+                    $icone = "📄";
+                    $corTopo = "#dc2626";
+                    $badges = ['Documento', 'PDF'];
 
-                if (class_exists('Smalot\PdfParser\Parser')) {
-                    try {
-                        $parser = new PdfParser();
-                        $pdf = $parser->parseFile($tmpPath);
-                        $details = $pdf->getDetails();
+                    if (class_exists('Smalot\PdfParser\Parser')) {
+                        try {
+                            $parser = new PdfParser();
+                            $pdf = $parser->parseFile($tmpPath);
+                            $details = $pdf->getDetails();
 
-                        $pdfMeta = [];
-                        if (!empty($details['Author'])) $pdfMeta['Autor'] = $details['Author'];
-                        if (!empty($details['Creator'])) $pdfMeta['Criador / Software'] = $details['Creator'];
-                        if (!empty($details['Producer'])) $pdfMeta['Produtor PDF'] = $details['Producer'];
-                        if (!empty($details['Title'])) $pdfMeta['Título'] = $details['Title'];
-                        if (!empty($details['Subject'])) $pdfMeta['Assunto'] = $details['Subject'];
-                        if (!empty($details['Pages'])) $pdfMeta['Número de Páginas'] = $details['Pages'];
-                        if (!empty($details['CreationDate'])) $pdfMeta['Data de Criação'] = $details['CreationDate'];
+                            $pdfMeta = [];
+                            if (!empty($details['Author'])) $pdfMeta['Autor'] = $details['Author'];
+                            if (!empty($details['Creator'])) $pdfMeta['Criador / Software'] = $details['Creator'];
+                            if (!empty($details['Producer'])) $pdfMeta['Produtor PDF'] = $details['Producer'];
+                            if (!empty($details['Title'])) $pdfMeta['Título'] = $details['Title'];
+                            if (!empty($details['Subject'])) $pdfMeta['Assunto'] = $details['Subject'];
+                            if (!empty($details['Pages'])) $pdfMeta['Número de Páginas'] = $details['Pages'];
+                            if (!empty($details['CreationDate'])) $pdfMeta['Data de Criação'] = $details['CreationDate'];
 
-                        if (!empty($pdfMeta)) $dados['📄 Metadados do Documento PDF'] = $pdfMeta;
+                            if (!empty($pdfMeta)) $dados['📄 Metadados do Documento PDF'] = $pdfMeta;
 
-                        $pages = $pdf->getPages();
-                        $estatisticas[] = ['label' => 'Páginas', 'value' => count($pages) . ' págs', 'color' => 'blue'];
-                    } catch (Exception $pe) {
-                        $alertas[] = '⚠️ Não foi possível analisar os fluxos internos do PDF.';
+                            $pages = $pdf->getPages();
+                            $estatisticas[] = ['label' => 'Páginas', 'value' => count($pages) . ' págs', 'color' => 'blue'];
+                        } catch (Exception $pe) {
+                            $alertas[] = '⚠️ Não foi possível analisar os fluxos internos do PDF.';
+                        }
                     }
                 }
-            }
 
-            // 5. ÁUDIO E VÍDEO
-            elseif (in_array($ext, ['mp3', 'wav', 'mp4', 'mov', 'avi', 'mkv', 'flac', 'ogg'])) {
-                $icone = "🎬";
-                $corTopo = "#7c3aed";
-                $badges = ['Mídia', strtoupper($ext)];
+                // 5. ÁUDIO E VÍDEO
+                elseif (in_array($ext, ['mp3', 'wav', 'mp4', 'mov', 'avi', 'mkv', 'flac', 'ogg'])) {
+                    $icone = "🎬";
+                    $corTopo = "#7c3aed";
+                    $badges = ['Mídia', strtoupper($ext)];
 
-                if (class_exists('getID3')) {
-                    $getID3 = new getID3;
-                    $fileInfo = $getID3->analyze($tmpPath);
+                    if (class_exists('getID3')) {
+                        $getID3 = new getID3;
+                        $fileInfo = $getID3->analyze($tmpPath);
 
-                    $mediaData = [];
-                    if (isset($fileInfo['playtime_string'])) $mediaData['Duração'] = $fileInfo['playtime_string'];
-                    if (isset($fileInfo['bitrate'])) $mediaData['Bitrate'] = round($fileInfo['bitrate'] / 1000) . ' kbps';
-                    if (isset($fileInfo['video']['resolution_x'])) $mediaData['Resolução'] = $fileInfo['video']['resolution_x'] . ' × ' . $fileInfo['video']['resolution_y'];
-                    if (isset($fileInfo['audio']['codec'])) $mediaData['Codec de Áudio'] = $fileInfo['audio']['codec'];
+                        $mediaData = [];
+                        if (isset($fileInfo['playtime_string'])) $mediaData['Duração'] = $fileInfo['playtime_string'];
+                        if (isset($fileInfo['bitrate'])) $mediaData['Bitrate'] = round($fileInfo['bitrate'] / 1000) . ' kbps';
+                        if (isset($fileInfo['video']['resolution_x'])) $mediaData['Resolução'] = $fileInfo['video']['resolution_x'] . ' × ' . $fileInfo['video']['resolution_y'];
+                        if (isset($fileInfo['audio']['codec'])) $mediaData['Codec de Áudio'] = $fileInfo['audio']['codec'];
 
-                    if (!empty($mediaData)) $dados['🎵 Informações de Reprodução'] = $mediaData;
+                        if (!empty($mediaData)) $dados['🎵 Informações de Reprodução'] = $mediaData;
+                    }
                 }
+
+                // 6. HTML / WEB
+                elseif (in_array($ext, ['html', 'htm'])) {
+                    $icone = "🌐";
+                    $corTopo = "#ea580c";
+                    $badges = ['Web', 'HTML'];
+
+                    libxml_use_internal_errors(true);
+                    $dom = new DOMDocument();
+                    $dom->loadHTML(file_get_contents($tmpPath));
+
+                    $titles = $dom->getElementsByTagName('title');
+                    if ($titles->length > 0) $dados['🔑 Título'] = ['Título' => $titles->item(0)->nodeValue];
+                }
+
+                $resultado = $dados;
+
+                // Avaliações de Risco e IA
+                $privacyScore = calcularScorePrivacidade($resultado, $gpsCoords, $ext);
+                $deteccao = detectarSoftwareIA($resultado);
+                $iaDetectada = $deteccao['ias'];
+                $softwaresDetectados = $deteccao['softwares'];
+
+            } catch (Exception $e) {
+                $erro = "Erro durante o processamento do arquivo: " . $e->getMessage();
             }
-
-            // 6. HTML / WEB
-            elseif (in_array($ext, ['html', 'htm'])) {
-                $icone = "🌐";
-                $corTopo = "#ea580c";
-                $badges = ['Web', 'HTML'];
-
-                libxml_use_internal_errors(true);
-                $dom = new DOMDocument();
-                $dom->loadHTML(file_get_contents($tmpPath));
-
-                $titles = $dom->getElementsByTagName('title');
-                if ($titles->length > 0) $dados['🔑 Título'] = ['Título' => $titles->item(0)->nodeValue];
-            }
-
-            $resultado = $dados;
-
-            // Avaliações de Risco e IA
-            $privacyScore = calcularScorePrivacidade($resultado, $gpsCoords, $ext);
-            $deteccao = detectarSoftwareIA($resultado);
-            $iaDetectada = $deteccao['ias'];
-            $softwaresDetectados = $deteccao['softwares'];
-
-        } catch (Exception $e) {
-            $erro = "Erro durante o processamento do arquivo: " . $e->getMessage();
         }
     }
 }
@@ -770,9 +824,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['arquivo'])) {
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <title>4U MetaViewer Pro 5.0 — Auditoria de Metadados, LGPD & Geolocalização</title>
+    <title>4U MetaViewer Pro 5.1 — Auditoria de Metadados, LGPD, Visualização de Imagem & Geolocalização</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="Analisador avançado de metadados com higienização de arquivos (Sanitizer LGPD), mapa interativo de geolocalização GPS e perícia forense.">
+    <meta name="description" content="Analisador avançado de metadados com higienização de arquivos (Sanitizer LGPD), visualização da imagem, mapa interativo de geolocalização GPS e perícia forense.">
 
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -901,10 +955,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['arquivo'])) {
                 <div>
                     <div class="flex items-center justify-center md:justify-start gap-2.5">
                         <h1 class="text-2xl sm:text-3xl font-black tracking-tight text-white">4U METAVIEWER</h1>
-                        <span class="pro-badge">PRO 5.0</span>
+                        <span class="pro-badge">PRO 5.1</span>
                     </div>
                     <p class="text-xs sm:text-sm text-slate-400 mt-1 max-w-xl">
-                        Auditoria Forense de Metadados, Higienização de Arquivos (LGPD), Geolocalização em Mapa & Detecção de IA.
+                        Auditoria Forense de Metadados, Higienização de Arquivos (LGPD), Visualização da Imagem & Geolocalização.
                     </p>
                 </div>
             </div>
@@ -944,24 +998,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['arquivo'])) {
              ÁREA DE UPLOAD (QUANDO NÃO HOUVER RESULTADO)
              ========================================================================== -->
         <?php if (!$resultado): ?>
-            <section class="glass-panel p-8 text-center space-y-6">
+            <section class="glass-panel p-8 text-center space-y-6 relative overflow-hidden">
                 <form method="POST" enctype="multipart/form-data" id="uploadForm">
+                    <input type="file" name="arquivo" id="fileInput" class="hidden">
+                    
                     <div class="upload-dropzone" id="dropZone">
-                        <input type="file" name="arquivo" id="fileInput" class="hidden" onchange="submitUpload()">
-                        
-                        <div class="w-16 h-16 mx-auto mb-4 rounded-3xl bg-violet-600/20 border border-violet-500/30 flex items-center justify-center text-3xl shadow-inner">
+                        <div class="w-16 h-16 mx-auto mb-4 rounded-3xl bg-violet-600/20 border border-violet-500/30 flex items-center justify-center text-3xl shadow-inner pointer-events-none">
                             ☁️
                         </div>
 
-                        <h2 class="text-xl sm:text-2xl font-bold text-white mb-2">
+                        <h2 class="text-xl sm:text-2xl font-bold text-white mb-2 pointer-events-none">
                             Arraste ou clique para selecionar um arquivo
                         </h2>
-                        <p class="text-xs sm:text-sm text-slate-400 max-w-md mx-auto mb-6">
+                        <p class="text-xs sm:text-sm text-slate-400 max-w-md mx-auto mb-6 pointer-events-none">
                             Extraia metadados completos de documentos, imagens, mídias e código. Higienize antes de compartilhar.
                         </p>
 
                         <!-- Pílulas de Formatos Suportados -->
-                        <div class="flex flex-wrap items-center justify-center gap-2 mb-6">
+                        <div class="flex flex-wrap items-center justify-center gap-2 mb-6 pointer-events-none">
                             <span class="badge-pill text-violet-300 bg-violet-600/10 border-violet-500/30">📄 PDF</span>
                             <span class="badge-pill text-blue-300 bg-blue-600/10 border-blue-500/30">📘 DOCX</span>
                             <span class="badge-pill text-emerald-300 bg-emerald-600/10 border-emerald-500/30">📊 XLSX</span>
@@ -971,10 +1025,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['arquivo'])) {
                             <span class="badge-pill text-amber-300 bg-amber-600/10 border-amber-500/30">🌐 HTML</span>
                         </div>
 
-                        <button type="button" onclick="document.getElementById('fileInput').click()" class="bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-semibold px-8 py-3.5 rounded-xl shadow-lg shadow-violet-600/25 transition-all inline-flex items-center gap-2 cursor-pointer transform hover:-translate-y-0.5">
+                        <button type="button" id="btnSelectFile" class="bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-semibold px-8 py-3.5 rounded-xl shadow-lg shadow-violet-600/25 transition-all inline-flex items-center gap-2 cursor-pointer transform hover:-translate-y-0.5">
                             <span>📂</span>
                             <span>Selecionar Arquivo</span>
                         </button>
+                    </div>
+
+                    <!-- Loader Overlay Dedicado (sem destruir inputs!) -->
+                    <div id="uploadLoader" class="hidden absolute inset-0 bg-slate-950/95 backdrop-blur-md rounded-3xl flex flex-col items-center justify-center z-50 p-6">
+                        <div id="loaderPreviewThumb" class="hidden mb-4">
+                            <img id="loaderImg" src="" alt="Enviando..." class="w-20 h-20 rounded-2xl object-cover border-2 border-violet-500 shadow-xl mx-auto">
+                        </div>
+                        <div class="w-12 h-12 border-4 border-violet-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+                        <p class="text-base font-bold text-white" id="loaderTitle">Analisando Arquivo...</p>
+                        <p class="text-xs text-slate-400 mt-1" id="loaderSubtitle">Calculando hashes criptográficos e extraindo metadados profundos</p>
                     </div>
                 </form>
 
@@ -995,9 +1059,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['arquivo'])) {
                 <!-- 1. HEADER DO ARQUIVO COM BADGES & IA DETECTADA -->
                 <section class="glass-panel p-6 flex flex-col md:flex-row items-center justify-between gap-5" style="border-top: 4px solid <?= $corTopo ?>;">
                     <div class="flex items-center gap-4 text-center md:text-left">
-                        <div class="w-16 h-16 rounded-2xl flex items-center justify-center text-3xl flex-shrink-0" style="background: <?= $corTopo ?>25; border: 1px solid <?= $corTopo ?>60;">
-                            <?= $icone ?>
-                        </div>
+                        <?php if (!empty($imagePreviewUrl)): ?>
+                            <img src="<?= $imagePreviewUrl ?>" alt="Thumb" class="w-16 h-16 rounded-2xl object-cover border border-white/20 shadow-md flex-shrink-0 cursor-pointer hover:scale-105 transition-transform" onclick="window.open('<?= $imagePreviewUrl ?>', '_blank')" title="Clique para ampliar a imagem">
+                        <?php else: ?>
+                            <div class="w-16 h-16 rounded-2xl flex items-center justify-center text-3xl flex-shrink-0" style="background: <?= $corTopo ?>25; border: 1px solid <?= $corTopo ?>60;">
+                                <?= $icone ?>
+                            </div>
+                        <?php endif; ?>
                         <div>
                             <span class="text-[11px] uppercase tracking-wider text-slate-400 font-bold block mb-1">
                                 Relatório Técnico de Metadados
@@ -1073,7 +1141,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['arquivo'])) {
                     </div>
                 </section>
 
-                <!-- 3. SCORE DE RISCO DE PRIVACIDADE (PRIVACY SCORE LGPD) -->
+                <!-- 3. PRÉ-VISUALIZAÇÃO DA IMAGEM ANALISADA (QUANDO HOUVER) -->
+                <?php if (!empty($imagePreviewUrl)): ?>
+                    <section class="glass-panel p-6 space-y-4">
+                        <div class="flex items-center justify-between">
+                            <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                                <span>🖼️</span>
+                                <span>Pré-visualização da Imagem Analisada</span>
+                            </h3>
+                            <span class="text-xs text-slate-400 font-mono"><?= htmlspecialchars($dados['📐 Dimensões e Qualidade']['Resolução'] ?? '') ?></span>
+                        </div>
+                        <div class="flex flex-col md:flex-row items-center gap-6 bg-slate-950/70 p-4 rounded-2xl border border-slate-800">
+                            <div class="max-w-md w-full md:w-auto flex-shrink-0 text-center">
+                                <img src="<?= $imagePreviewUrl ?>" alt="Imagem Analisada" class="max-h-80 w-auto rounded-xl border border-slate-700/80 shadow-2xl mx-auto object-contain cursor-pointer hover:scale-102 transition-transform" onclick="window.open('<?= $imagePreviewUrl ?>', '_blank')" title="Clique para abrir em tamanho real">
+                            </div>
+                            <div class="flex-1 space-y-3 text-xs text-slate-300 w-full">
+                                <div class="font-bold text-sm text-white">Imagem Carregada com Sucesso</div>
+                                <p class="text-slate-400">Esta imagem foi processada pelo motor forense para extração de metadados EXIF, IPTC, canais de cor e identificação de marcas de câmeras e geolocalização.</p>
+                                <div class="grid grid-cols-2 gap-2 font-mono">
+                                    <div class="p-2.5 rounded-xl bg-slate-900 border border-slate-800">
+                                        <span class="text-[10px] text-slate-500 block font-sans">RESOLUÇÃO</span>
+                                        <strong class="text-white"><?= htmlspecialchars($dados['📐 Dimensões e Qualidade']['Resolução'] ?? '—') ?></strong>
+                                    </div>
+                                    <div class="p-2.5 rounded-xl bg-slate-900 border border-slate-800">
+                                        <span class="text-[10px] text-slate-500 block font-sans">MEGAPIXELS</span>
+                                        <strong class="text-cyan-400"><?= htmlspecialchars($dados['📐 Dimensões e Qualidade']['Megapixels'] ?? '—') ?></strong>
+                                    </div>
+                                    <div class="p-2.5 rounded-xl bg-slate-900 border border-slate-800">
+                                        <span class="text-[10px] text-slate-500 block font-sans">FORMATO / MIME</span>
+                                        <strong class="text-violet-400"><?= strtoupper($ext) ?> (<?= htmlspecialchars($mimeReal ?? 'image') ?>)</strong>
+                                    </div>
+                                    <div class="p-2.5 rounded-xl bg-slate-900 border border-slate-800">
+                                        <span class="text-[10px] text-slate-500 block font-sans">TAMANHO EM DISCO</span>
+                                        <strong class="text-emerald-400"><?= formatarTamanho($fileStats['size'] ?? 9880000) ?></strong>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+                <?php endif; ?>
+
+                <!-- 4. SCORE DE RISCO DE PRIVACIDADE (PRIVACY SCORE LGPD) -->
                 <?php if ($privacyScore): ?>
                     <section class="glass-panel p-6 space-y-4">
                         <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -1114,7 +1222,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['arquivo'])) {
                     </section>
                 <?php endif; ?>
 
-                <!-- 4. GEOLOCALIZAÇÃO EM MAPA INTERATIVO (QUANDO HOUVER GPS) -->
+                <!-- 5. GEOLOCALIZAÇÃO EM MAPA INTERATIVO (QUANDO HOUVER GPS) -->
                 <?php if ($gpsCoords): ?>
                     <section class="glass-panel p-6 space-y-4">
                         <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -1145,7 +1253,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['arquivo'])) {
                     </section>
                 <?php endif; ?>
 
-                <!-- 5. ESTATÍSTICAS CHAVE & KPIS -->
+                <!-- 6. ESTATÍSTICAS CHAVE & KPIS -->
                 <?php if (!empty($estatisticas)): ?>
                     <section class="grid grid-cols-2 sm:grid-cols-3 gap-4">
                         <?php foreach ($estatisticas as $st): ?>
@@ -1157,7 +1265,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['arquivo'])) {
                     </section>
                 <?php endif; ?>
 
-                <!-- 6. ASSINATURA DIGITAL & HASHES CRIPTOGRÁFICOS -->
+                <!-- 7. ASSINATURA DIGITAL & HASHES CRIPTOGRÁFICOS -->
                 <?php if (!empty($hashes)): ?>
                     <section class="glass-panel p-6 space-y-3">
                         <h3 class="text-sm font-bold text-white flex items-center gap-2">
@@ -1180,7 +1288,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['arquivo'])) {
                     </section>
                 <?php endif; ?>
 
-                <!-- 7. TABELAS DE METADADOS CATEGORIZADAS -->
+                <!-- 8. TABELAS DE METADADOS CATEGORIZADAS -->
                 <section class="glass-panel p-6 space-y-6">
                     <h3 class="text-base font-bold text-white flex items-center gap-2 border-b border-slate-800 pb-3">
                         <span>📋</span>
@@ -1238,48 +1346,87 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['arquivo'])) {
 
     <!-- SCRIPTS INTERATIVOS -->
     <script>
-        // Dropzone e Upload automático
         const dropZone = document.getElementById('dropZone');
         const fileInput = document.getElementById('fileInput');
         const uploadForm = document.getElementById('uploadForm');
+        const uploadLoader = document.getElementById('uploadLoader');
+        const btnSelectFile = document.getElementById('btnSelectFile');
 
-        if (dropZone) {
-            ['dragenter', 'dragover'].forEach(name => {
-                dropZone.addEventListener(name, (e) => {
-                    e.preventDefault();
-                    dropZone.classList.add('dragover');
+        if (fileInput) {
+            if (btnSelectFile) {
+                btnSelectFile.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    fileInput.click();
                 });
-            });
+            }
 
-            ['dragleave', 'drop'].forEach(name => {
-                dropZone.addEventListener(name, (e) => {
-                    e.preventDefault();
-                    dropZone.classList.remove('dragover');
+            if (dropZone) {
+                dropZone.addEventListener('click', (e) => {
+                    fileInput.click();
                 });
-            });
 
-            dropZone.addEventListener('drop', (e) => {
-                const files = e.dataTransfer.files;
-                if (files && files.length > 0) {
-                    fileInput.files = files;
+                ['dragenter', 'dragover'].forEach(name => {
+                    dropZone.addEventListener(name, (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        dropZone.classList.add('dragover');
+                    });
+                });
+
+                ['dragleave', 'drop'].forEach(name => {
+                    dropZone.addEventListener(name, (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        dropZone.classList.remove('dragover');
+                    });
+                });
+
+                dropZone.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const files = e.dataTransfer.files;
+                    if (files && files.length > 0) {
+                        fileInput.files = files;
+                        submitUpload();
+                    }
+                });
+            }
+
+            fileInput.addEventListener('change', () => {
+                if (fileInput.files.length > 0) {
                     submitUpload();
                 }
             });
         }
 
         function submitUpload() {
-            if (fileInput && fileInput.files.length > 0) {
-                if (dropZone) {
-                    dropZone.innerHTML = `
-                        <div class="py-8">
-                            <div class="w-12 h-12 border-4 border-violet-500 border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
-                            <p class="text-sm font-bold text-white">Analisando metadados do arquivo...</p>
-                            <p class="text-xs text-slate-400 mt-1">Calculando hashes e extraindo metadados profundos</p>
-                        </div>
-                    `;
+            if (!fileInput || fileInput.files.length === 0) return;
+            const file = fileInput.files[0];
+
+            if (uploadLoader) {
+                uploadLoader.classList.remove('hidden');
+                const title = document.getElementById('loaderTitle');
+                const sub = document.getElementById('loaderSubtitle');
+                const thumbBox = document.getElementById('loaderPreviewThumb');
+                const thumbImg = document.getElementById('loaderImg');
+
+                if (title) title.textContent = `Carregando ${file.name}...`;
+                if (sub) sub.textContent = `Tamanho: ${(file.size / (1024 * 1024)).toFixed(2)} MB • Processando metadados`;
+
+                // Se for imagem, exibe miniatura instantânea durante o upload
+                if (file.type.startsWith('image/') && thumbBox && thumbImg) {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        thumbImg.src = e.target.result;
+                        thumbBox.classList.remove('hidden');
+                    };
+                    reader.readAsDataURL(file);
                 }
-                uploadForm.submit();
             }
+
+            setTimeout(() => {
+                uploadForm.submit();
+            }, 100);
         }
 
         // Inicialização do Mapa Leaflet (se houver coordenadas)
