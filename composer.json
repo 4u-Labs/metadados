@@ -1,0 +1,13 @@
+{
+    "require": {
+        "smalot/pdfparser": "^2.0",
+        "phpoffice/phpword": "^1.0",
+        "phpoffice/phpspreadsheet": "^1.28",
+        "james-heinrich/getid3": "^1.9"
+    },
+    "config": {
+        "platform": {
+            "php": "7.4"
+        }
+    }
+}
